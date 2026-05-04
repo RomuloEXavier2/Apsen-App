@@ -1,19 +1,30 @@
-import { Truck, QrCode, Archive, History } from 'lucide-react';
+import { Truck, QrCode, Archive, History, BarChart3, type LucideProps } from 'lucide-react';
+import { FC } from 'react';
 import { View } from '@/src/types';
 import { cn } from '@/src/lib/utils';
+import { useAuth } from '@/src/contexts/AuthContext';
 
 interface BottomNavBarProps {
   currentView: View;
   onViewChange: (view: View) => void;
 }
 
+interface NavItem {
+  id: View;
+  label: string;
+  icon: FC<LucideProps>;
+}
+
 export function BottomNavBar({ currentView, onViewChange }: BottomNavBarProps) {
-  const items = [
+  const { isAdmin } = useAuth();
+
+  const items: NavItem[] = [
     { id: 'expeditions', label: 'Expedições', icon: Truck },
-    { id: 'scanning', label: 'Scanner', icon: QrCode },
-    { id: 'archive', label: 'Arquivo', icon: Archive },
-    { id: 'history', label: 'Histórico', icon: History },
-  ] as const;
+    { id: 'scanning',    label: 'Scanner',    icon: QrCode },
+    { id: 'archive',     label: 'Arquivo',    icon: Archive },
+    { id: 'history',     label: 'Histórico',  icon: History },
+    ...(isAdmin ? [{ id: 'dashboard' as View, label: 'Dashboard', icon: BarChart3 }] : []),
+  ];
 
   return (
     <nav className="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-2 bg-surface/80 backdrop-blur-md z-50 rounded-t-3xl border-t border-surface-container-highest/20 shadow-[0_-4px_32px_rgba(25,28,26,0.04)]">

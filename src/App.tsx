@@ -8,6 +8,7 @@ import { Scanning } from './views/Scanning';
 import { NewOrder } from './views/NewOrder';
 import { Archive } from './views/Archive';
 import { HistoryReport } from './views/HistoryReport';
+import { MachineDashboard } from './views/MachineDashboard';
 import { Login } from './views/Login';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { OrdersProvider } from './contexts/OrdersContext';
@@ -38,6 +39,7 @@ function AppContent() {
     'history': 'Histórico',
     'archive': 'Arquivo',
     'scanning': 'Scanner QR',
+    'dashboard': 'Dashboard',
   };
 
   const renderView = () => {
@@ -56,6 +58,8 @@ function AppContent() {
         return <Archive />;
       case 'history':
         return <HistoryReport />;
+      case 'dashboard':
+        return <MachineDashboard />;
       default:
         return <Expeditions onOrderClick={handleOrderClick} onNewOrder={handleNewOrder} />;
     }

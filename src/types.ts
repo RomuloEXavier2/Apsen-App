@@ -1,4 +1,4 @@
-export type View = 'expeditions' | 'details' | 'scanning' | 'new-order' | 'archive' | 'history';
+export type View = 'expeditions' | 'details' | 'scanning' | 'new-order' | 'archive' | 'history' | 'dashboard';
 
 export type UserRole = 'admin' | 'operator';
 

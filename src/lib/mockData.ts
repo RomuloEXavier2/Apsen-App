@@ -1,5 +1,62 @@
 import { ServiceOrder, ActivityLog, RouteStop } from '@/src/types';
 
+export interface DailyPerformance {
+  date: string;
+  performance: number | null;
+  avgSeparationTime: number | null;
+  operationHours: number | null;
+  maintenanceHours: number | null;
+  totalSeparations: number | null;
+}
+
+export interface TopMedication {
+  rank: number;
+  name: string;
+  substance: string;
+  count: number;
+  change: number;
+}
+
+function rng(s: number): number {
+  const x = Math.sin(s * 9301 + 49297) * 10000;
+  return x - Math.floor(x);
+}
+
+export const MACHINE_PERFORMANCE_DATA: DailyPerformance[] = (() => {
+  const result: DailyPerformance[] = [];
+  const base = new Date(2026, 3, 5); // April 5, 2026
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(base);
+    d.setDate(base.getDate() + i);
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    const label = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    if (isWeekend) {
+      result.push({ date: label, performance: null, avgSeparationTime: null, operationHours: null, maintenanceHours: null, totalSeparations: null });
+    } else {
+      result.push({
+        date: label,
+        performance: Math.round(68 + rng(i * 7 + 1) * 27),
+        avgSeparationTime: +((2.8 + rng(i * 7 + 2) * 4.2).toFixed(1)),
+        operationHours: Math.round(8 + rng(i * 7 + 3) * 6),
+        maintenanceHours: +((rng(i * 7 + 4) * 2.8).toFixed(1)),
+        totalSeparations: Math.round(28 + rng(i * 7 + 5) * 52),
+      });
+    }
+  }
+  return result;
+})();
+
+export const TOP_MEDICATIONS: TopMedication[] = [
+  { rank: 1, name: 'Donaren®',  substance: 'Trazodona HCl',           count: 14820, change: +5.2 },
+  { rank: 2, name: 'Alois®',    substance: 'Memantina HCl',            count: 12350, change: +2.1 },
+  { rank: 3, name: 'Flancox®',  substance: 'Etodolaco',                count: 9870,  change: -1.3 },
+  { rank: 4, name: 'Miosan',    substance: 'Ciclobenzaprina HCl',      count: 8640,  change: +8.7 },
+  { rank: 5, name: 'Atentah',   substance: 'Atomoxetina HCl',          count: 7210,  change: +3.4 },
+  { rank: 6, name: 'Benicar®',  substance: 'Olmesartana Medoxomila',   count: 6890,  change: -4.2 },
+  { rank: 7, name: 'Crestor®',  substance: 'Rosuvastatina Cálcica',    count: 5340,  change: +1.9 },
+  { rank: 8, name: 'Novalgina®',substance: 'Dipirona Sódica',          count: 4980,  change: -0.8 },
+];
+
 export const MOCK_ORDERS: ServiceOrder[] = [
   {
     id: 'OS-2024-001',
