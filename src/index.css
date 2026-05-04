@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Manrope", sans-serif;
+
+  --color-primary: #00328b;
+  --color-primary-container: #0047bc;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #afc2ff;
+  
+  --color-surface: #f8f9fc;
+  --color-surface-bright: #f8f9fc;
+  --color-surface-dim: #d9dadd;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f3f6;
+  --color-surface-container: #edeef1;
+  --color-surface-container-high: #e7e8eb;
+  --color-surface-container-highest: #e1e2e5;
+
+  --color-on-surface: #191c1e;
+  --color-on-surface-variant: #434653;
+  
+  --color-tertiary: #6d1f00;
+  --color-tertiary-container: #942d00;
+  --color-on-tertiary-container: #ffb197;
+
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-headline;
+  }
+}
+
+/* Custom Utilities for the "Clinical Architect" style */
+@layer utilities {
+  .glass {
+    @apply bg-surface/80 backdrop-blur-xl;
+  }
+  
+  .tonal-shadow {
+    box-shadow: 0px 12px 32px rgba(0, 50, 139, 0.06);
+  }
+  
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

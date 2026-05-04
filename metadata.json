@@ -1,0 +1,6 @@
+{
+  "name": "Apsen Logistics Portal",
+  "description": "High-precision pharmaceutical logistics management system for Apsen, featuring real-time monitoring, cold-chain tracking, and service order initiation.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["Logistics Tracking", "Cold Chain Monitoring", "QR Scanning"]
+}
