@@ -2,21 +2,32 @@ import { ArrowLeft, Package, Thermometer, MapPin, FileText, Download, RefreshCw,
 import { motion } from 'motion/react';
 import { ServiceOrder } from '@/src/types';
 import { cn } from '@/src/lib/utils';
+import { generateInvoicePDF } from '@/src/lib/generateInvoice';
+import { useAuth } from '@/src/contexts/AuthContext';
 
 interface DetailsProps {
   order: ServiceOrder;
   onBack: () => void;
 }
 
+const DEFAULT_ITEMS = [
+  { name: 'Donaren®', subName: 'Trazodona HCl', qty: '850', batch: '#B24-APS-442', coldChain: false },
+  { name: 'Flancox®', subName: 'Etodolaco', qty: '1.200', batch: '#B24-APS-091', coldChain: false },
+  { name: 'Alois®', subName: 'Memantina HCl', qty: '2.400', batch: '#B24-APS-218', coldChain: true },
+  { name: 'Miosan', subName: 'Ciclobenzaprina HCl', qty: '600', batch: '#B24-APS-331', coldChain: false },
+  { name: 'Atentah', subName: 'Atomoxetina HCl', qty: '900', batch: '#B24-APS-157', coldChain: false },
+];
+
 export function Details({ order, onBack }: DetailsProps) {
-  const items = [
-    { name: 'Velija 60mg', subName: 'Duloxetine Hydrochloride', qty: '1,200', batch: '#B24-APS-091', coldChain: true },
-    { name: 'Donaren Retard', subName: 'Trazodone Hydrochloride', qty: '850', batch: '#B24-APS-442', coldChain: false },
-    { name: 'Pondera 20mg', subName: 'Paroxetine', qty: '2,400', batch: '#B24-APS-218', coldChain: false },
-  ];
+  const { user, isAdmin } = useAuth();
+  const items = order.items?.length ? order.items : DEFAULT_ITEMS;
+
+  const handleDownloadInvoice = () => {
+    generateInvoicePDF(order, user?.name ?? 'Operador');
+  };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
@@ -25,21 +36,21 @@ export function Details({ order, onBack }: DetailsProps) {
       {/* Header */}
       <section className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div>
-          <button 
+          <button
             onClick={onBack}
             className="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors mb-4 group"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
             <span className="text-xs font-bold uppercase tracking-widest">Voltar</span>
           </button>
-          <span className="text-on-surface-variant font-bold text-[10px] tracking-[0.2em] uppercase">Service Order Details</span>
+          <span className="text-on-surface-variant font-bold text-[10px] tracking-[0.2em] uppercase">Detalhes da Ordem de Serviço</span>
           <h1 className="text-5xl font-extrabold text-primary tracking-tight mt-2">{order.id}</h1>
-          <p className="text-on-surface-variant mt-2 font-medium text-lg">Apsen Pharmaceutical Logistics Hub • Node 04</p>
+          <p className="text-on-surface-variant mt-2 font-medium text-lg">Apsen Farmacêuticos — Hub Logístico • Nó 04</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="bg-tertiary-container/30 px-6 py-3 rounded-full flex items-center gap-3 border border-on-tertiary-container/10">
             <div className="w-3 h-3 bg-on-tertiary-container rounded-full animate-pulse" />
-            <span className="text-on-tertiary-container font-bold uppercase tracking-widest text-xs">In Transit</span>
+            <span className="text-on-tertiary-container font-bold uppercase tracking-widest text-xs">{order.status}</span>
           </div>
         </div>
       </section>
@@ -51,17 +62,17 @@ export function Details({ order, onBack }: DetailsProps) {
           <div className="p-8 border-b border-surface-container-highest/10">
             <h2 className="text-2xl font-bold text-primary flex items-center gap-3">
               <Package className="w-6 h-6" />
-              Manifest Items
+              Itens do Manifesto
             </h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead className="bg-surface-container-low/50">
                 <tr>
-                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Medication Name</th>
-                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant text-right">Qty</th>
-                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Batch Number</th>
-                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Cold Chain</th>
+                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Medicamento</th>
+                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant text-right">Qtd.</th>
+                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Nº Lote</th>
+                  <th className="px-8 py-4 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Cadeia Fria</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-container-highest/10">
@@ -75,7 +86,7 @@ export function Details({ order, onBack }: DetailsProps) {
                     <td className="px-8 py-6 font-mono text-xs text-on-surface-variant">{item.batch}</td>
                     <td className="px-8 py-6">
                       {item.coldChain ? (
-                        <Snowflake className="w-5 h-5 text-primary fill-current opacity-20" />
+                        <Snowflake className="w-5 h-5 text-primary fill-current opacity-60" />
                       ) : (
                         <CheckCircle2 className="w-5 h-5 text-on-surface-variant opacity-20" />
                       )}
@@ -87,29 +98,38 @@ export function Details({ order, onBack }: DetailsProps) {
           </div>
         </div>
 
-        {/* Sidebar Info */}
+        {/* Sidebar */}
         <div className="md:col-span-4 space-y-6">
-          {/* Logistics Tracking Card */}
+          {/* Critical Metrics */}
           <div className="bg-primary-container p-8 rounded-3xl text-on-primary overflow-hidden relative">
             <div className="relative z-10">
-              <h3 className="text-on-primary-container font-bold uppercase tracking-widest text-[10px] mb-4">Critical Metrics</h3>
+              <h3 className="text-on-primary-container font-bold uppercase tracking-widest text-[10px] mb-4">Métricas Críticas</h3>
               <div className="space-y-6">
                 <div>
-                  <div className="text-on-primary-container/60 text-[10px] uppercase font-bold mb-1">Current Temperature</div>
-                  <div className="text-4xl font-extrabold font-headline">2.4°C</div>
+                  <div className="text-on-primary-container/60 text-[10px] uppercase font-bold mb-1">Temperatura Atual</div>
+                  <div className="text-4xl font-extrabold font-headline">{order.temperature ?? '2.4°C'}</div>
                 </div>
                 <div>
-                  <div className="text-on-primary-container/60 text-[10px] uppercase font-bold mb-1">Estimated Arrival</div>
-                  <div className="text-xl font-bold">14:35 — SP Hub</div>
+                  <div className="text-on-primary-container/60 text-[10px] uppercase font-bold mb-1">Chegada Estimada</div>
+                  <div className="text-xl font-bold">{order.eta ?? '14:35'} — Hub SP</div>
                 </div>
+                {/* Admin-only financial data */}
+                {isAdmin && order.totalValue && (
+                  <div>
+                    <div className="text-on-primary-container/60 text-[10px] uppercase font-bold mb-1">Valor da Ordem</div>
+                    <div className="text-xl font-bold">
+                      {order.totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <Thermometer className="absolute -bottom-10 -right-10 w-40 h-40 opacity-10" />
           </div>
 
-          {/* Shipping Destination */}
+          {/* Shipping Route */}
           <div className="bg-surface-container p-6 rounded-3xl border border-surface-container-highest/10">
-            <h3 className="text-on-surface-variant font-bold uppercase tracking-widest text-[10px] mb-4">Shipping Route</h3>
+            <h3 className="text-on-surface-variant font-bold uppercase tracking-widest text-[10px] mb-4">Rota de Envio</h3>
             <div className="flex items-start gap-4">
               <div className="flex flex-col items-center gap-1">
                 <div className="w-3 h-3 rounded-full border-2 border-primary" />
@@ -118,12 +138,12 @@ export function Details({ order, onBack }: DetailsProps) {
               </div>
               <div className="flex flex-col justify-between h-20">
                 <div>
-                  <div className="text-xs font-bold text-primary">Valinhos Distribution Center</div>
-                  <div className="text-[10px] text-on-surface-variant uppercase">Origin</div>
+                  <div className="text-xs font-bold text-primary">{order.origin ?? 'Centro de Distribuição Valinhos'}</div>
+                  <div className="text-[10px] text-on-surface-variant uppercase">Origem</div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-primary">São Paulo Regional Hub</div>
-                  <div className="text-[10px] text-on-surface-variant uppercase">Destination</div>
+                  <div className="text-xs font-bold text-primary">{order.destination}</div>
+                  <div className="text-[10px] text-on-surface-variant uppercase">Destino</div>
                 </div>
               </div>
             </div>
@@ -131,26 +151,28 @@ export function Details({ order, onBack }: DetailsProps) {
 
           {/* Documentation */}
           <div className="bg-surface-container-low p-6 rounded-3xl border border-surface-container-highest/10">
-            <h3 className="text-on-surface-variant font-bold uppercase tracking-widest text-[10px] mb-4">Documentation</h3>
+            <h3 className="text-on-surface-variant font-bold uppercase tracking-widest text-[10px] mb-4">Documentação</h3>
             <ul className="space-y-3">
               <li className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-2 text-on-surface-variant">
-                  <FileText className="w-4 h-4" /> Invoice_8842.pdf
+                  <FileText className="w-4 h-4" /> Pedido_Separacao_{order.id}.pdf
                 </span>
-                <Download className="w-4 h-4 text-primary cursor-pointer hover:scale-110 transition-transform" />
+                <button onClick={handleDownloadInvoice} title="Baixar pedido de separação">
+                  <Download className="w-4 h-4 text-primary cursor-pointer hover:scale-110 transition-transform" />
+                </button>
               </li>
               <li className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-2 text-on-surface-variant">
-                  <CheckCircle2 className="w-4 h-4" /> Quality_Cert_V2.pdf
+                  <CheckCircle2 className="w-4 h-4" /> Cert_Qualidade_V2.pdf
                 </span>
-                <Download className="w-4 h-4 text-primary cursor-pointer hover:scale-110 transition-transform" />
+                <Download className="w-4 h-4 text-primary cursor-pointer hover:scale-110 transition-transform opacity-40" />
               </li>
             </ul>
           </div>
         </div>
       </div>
 
-      {/* Floating Action Bar */}
+      {/* Floating Action */}
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60]">
         <button className="flex flex-col items-center group">
           <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center shadow-2xl group-hover:scale-105 group-active:scale-95 transition-all duration-300 bg-gradient-to-b from-primary to-primary-container">
