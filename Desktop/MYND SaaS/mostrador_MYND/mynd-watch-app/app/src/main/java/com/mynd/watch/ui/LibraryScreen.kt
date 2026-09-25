@@ -36,6 +36,17 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(sendToWatch: (FaceLibrary.Ref) -> Unit) {
+    var previewRef by remember { mutableStateOf<FaceLibrary.Ref?>(null) }
+    previewRef?.let { ref ->
+        PreviewScreen(ref = ref, sendToWatch = sendToWatch, onBack = { previewRef = null })
+        return
+    }
+    LibraryContent(sendToWatch = sendToWatch, onPreview = { previewRef = it })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (FaceLibrary.Ref) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val installed by WatchService.installedFlow.collectAsState()
@@ -187,6 +198,7 @@ fun LibraryScreen(sendToWatch: (FaceLibrary.Ref) -> Unit) {
                         // Ações da versão
                         val ref = FaceLibrary.Ref(entry.id, ver.n)
                         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { onPreview(ref); showVersionsFor = null }) { Text("Pré-visualizar", color = Cyan, fontSize = 12.sp) }
                             TextButton(onClick = { sendToWatch(ref); showVersionsFor = null }) { Text("Enviar ao relógio", color = Cyan, fontSize = 12.sp) }
                             TextButton(onClick = {
                                 Toast.makeText(ctx, "Disponível na 0.2.5", Toast.LENGTH_SHORT).show()
