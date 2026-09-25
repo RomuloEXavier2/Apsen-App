@@ -42,16 +42,22 @@ import java.util.*
 @Composable
 fun LibraryScreen(sendToWatch: (FaceLibrary.Ref) -> Unit) {
     var previewRef by remember { mutableStateOf<FaceLibrary.Ref?>(null) }
+    var studioRef  by remember { mutableStateOf<FaceLibrary.Ref?>(null) }
+    studioRef?.let { ref ->
+        StudioScreen(ref = ref, onBack = { studioRef = null })
+        return
+    }
     previewRef?.let { ref ->
         PreviewScreen(ref = ref, sendToWatch = sendToWatch, onBack = { previewRef = null })
         return
     }
-    LibraryContent(sendToWatch = sendToWatch, onPreview = { previewRef = it })
+    LibraryContent(sendToWatch = sendToWatch, onPreview = { previewRef = it }, onStudio = { studioRef = it })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (FaceLibrary.Ref) -> Unit) {
+private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit,
+    onPreview: (FaceLibrary.Ref) -> Unit, onStudio: (FaceLibrary.Ref) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val installed by WatchService.installedFlow.collectAsState()
@@ -274,9 +280,9 @@ private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (F
                             TextButton(onClick = { sendToWatch(ref); showVersionsFor = null }, enabled = !isSending) {
                                 Text("Enviar ao relógio", color = if (isSending) TxtSec else Cyan, fontSize = 12.sp)
                             }
-                            TextButton(onClick = {
-                                Toast.makeText(ctx, "Disponível na 0.2.5", Toast.LENGTH_SHORT).show()
-                            }) { Text("Editar no Estúdio", color = TxtSec, fontSize = 12.sp) }
+                            TextButton(onClick = { onStudio(ref); showVersionsFor = null }) {
+                                Text("Editar no Estúdio", color = Cyan, fontSize = 12.sp)
+                            }
                             TextButton(onClick = { Library.lib.markApproved(ref); reload(); showVersionsFor = Library.lib.get(entry.id) }) {
                                 Text("Marcar aprovado", color = TxtSec, fontSize = 12.sp)
                             }
