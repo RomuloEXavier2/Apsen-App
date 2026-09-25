@@ -1,8 +1,12 @@
 package com.mynd.watch.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -10,27 +14,81 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mynd.watch.data.Library
 import com.mynd.watch.service.WatchService
 import com.mynd.watch.studio.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.*
 
 @Composable
 fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, onBack: () -> Unit) {
-    val entry   = remember(ref.id) { Library.lib.get(ref.id) }
-    val face    = remember(ref) { runCatching { FaceFile.parse(Library.lib.bytes(ref)) }.getOrNull() }
+    val ctx      = LocalContext.current
+    val entry    = remember(ref.id) { Library.lib.get(ref.id) }
+    val originalFace = remember(ref) { runCatching { FaceFile.parse(Library.lib.bytes(ref)) }.getOrNull() }
     val contract = entry?.contract ?: DataContract.REAL_WEATHER
     val usesBambu = contract.usesBambu
 
-    if (face == null) { onBack(); return }
+    if (originalFace == null) { onBack(); return }
 
     var showBoxes by remember { mutableStateOf(false) }
     var live      by remember { mutableStateOf(false) }
 
-    // Sliders comuns
+    // ── Estado do fundo ──────────────────────────────────────────────────
+    var wallArgb  by remember { mutableStateOf<IntArray?>(null) }
+    var darken    by remember { mutableIntStateOf(45) }
+    var tint      by remember { mutableIntStateOf(0) }
+    var keepFrame by remember { mutableStateOf(true) }
+    var displayFace by remember { mutableStateOf(originalFace) }
+    val scope = rememberCoroutineScope()
+
+    // Frame da moldura (carregado uma vez)
+    val frameArgb = remember(usesBambu) {
+        runCatching {
+            val name = if (usesBambu) "studio/frames/hud_bambu_frame.png" else "studio/frames/hud_frame.png"
+            val bmp = BitmapFactory.decodeStream(ctx.assets.open(name))
+            val px = IntArray(JL.W * JL.H); bmp.getPixels(px, 0, JL.W, 0, 0, JL.W, JL.H); px
+        }.getOrNull()
+    }
+
+    // Recalcular face quando fundo muda (em background thread)
+    LaunchedEffect(wallArgb, darken, tint, keepFrame) {
+        val wall = wallArgb
+        if (wall == null) { displayFace = originalFace; return@LaunchedEffect }
+        val newFace = withContext(Dispatchers.Default) {
+            val bg = FaceComposer.compose(wall, if (keepFrame) frameArgb else null, FaceComposer.WallpaperFx(darken, tint))
+            FaceComposer.withBackground(originalFace, bg)
+        }
+        displayFace = newFace
+    }
+
+    // Picker de imagem
+    val wallLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            val px = runCatching {
+                val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: return@runCatching null
+                // center-crop para proporção 240:296
+                val srcW = bmp.width; val srcH = bmp.height
+                val targetRatio = JL.W.toFloat() / JL.H
+                val srcRatio    = srcW.toFloat() / srcH
+                val (cropW, cropH) = if (srcRatio > targetRatio) (srcH * targetRatio).toInt() to srcH
+                                     else srcW to (srcW / targetRatio).toInt()
+                val x0 = (srcW - cropW) / 2; val y0 = (srcH - cropH) / 2
+                val cropped = Bitmap.createBitmap(bmp, x0, y0, cropW, cropH)
+                val scaled  = Bitmap.createScaledBitmap(cropped, JL.W, JL.H, true)
+                val out = IntArray(JL.W * JL.H); scaled.getPixels(out, 0, JL.W, 0, 0, JL.W, JL.H); out
+            }.getOrNull()
+            withContext(Dispatchers.Main) { if (px != null) wallArgb = px }
+        }
+    }
+
+    // ── Sliders de simulação ─────────────────────────────────────────────
     var hour    by remember { mutableIntStateOf(10) }
     var minute  by remember { mutableIntStateOf(47) }
     var second  by remember { mutableIntStateOf(32) }
@@ -40,43 +98,33 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
     var steps   by remember { mutableIntStateOf(7420) }
     var bpm     by remember { mutableIntStateOf(72) }
     var battery by remember { mutableIntStateOf(78) }
+    var pct     by remember { mutableIntStateOf(34) }
+    var remain  by remember { mutableIntStateOf(844) }
+    var nozzle  by remember { mutableIntStateOf(220) }
+    var curTemp by remember { mutableIntStateOf(22) }
+    var loTemp  by remember { mutableIntStateOf(14) }
+    var hiTemp  by remember { mutableIntStateOf(28) }
+    var icon    by remember { mutableIntStateOf(0) }
 
-    // Sliders Bambu
-    var pct      by remember { mutableIntStateOf(34) }
-    var remain   by remember { mutableIntStateOf(844) }
-    var nozzle   by remember { mutableIntStateOf(220) }
-
-    // Sliders clima real
-    var curTemp  by remember { mutableIntStateOf(22) }
-    var loTemp   by remember { mutableIntStateOf(14) }
-    var hiTemp   by remember { mutableIntStateOf(28) }
-    var icon     by remember { mutableIntStateOf(0) }
-
-    // Dados ao vivo
     val printFlow by WatchService.printFlow.collectAsState()
     val batFlow   by WatchService.batteryFlow.collectAsState()
 
     val weatherChannels: WeatherChannels = if (live) {
         if (usesBambu) {
             val snap = printFlow
-            if (snap != null)
-                ContractMapper.channels(contract, PrintValues(snap.percent, snap.remainH * 60 + snap.remainM,
-                    snap.nozzle, snap.nozzleTarget, snap.bed, snap.bedTarget, snap.layer, snap.totalLayers))
+            if (snap != null) ContractMapper.channels(contract, PrintValues(snap.percent, snap.remainH * 60 + snap.remainM,
+                snap.nozzle, snap.nozzleTarget, snap.bed, snap.bedTarget, snap.layer, snap.totalLayers))
             else WeatherChannels(0, 0, 0, 0)
         } else WeatherChannels(curTemp, loTemp, hiTemp, icon)
     } else {
-        if (usesBambu)
-            ContractMapper.channels(contract, PrintValues(pct, remain, nozzle))
+        if (usesBambu) ContractMapper.channels(contract, PrintValues(pct, remain, nozzle))
         else WeatherChannels(curTemp, loTemp, hiTemp, icon)
     }
 
     val liveNow = remember { Calendar.getInstance() }
     if (live) {
         LaunchedEffect(Unit) {
-            while (true) {
-                liveNow.time = Date()
-                kotlinx.coroutines.delay(1000)
-            }
+            while (true) { liveNow.time = Date(); kotlinx.coroutines.delay(1000) }
         }
     }
 
@@ -84,17 +132,16 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
         hour = liveNow.get(Calendar.HOUR_OF_DAY), minute = liveNow.get(Calendar.MINUTE),
         second = liveNow.get(Calendar.SECOND), year = liveNow.get(Calendar.YEAR),
         month = liveNow.get(Calendar.MONTH) + 1, day = liveNow.get(Calendar.DAY_OF_MONTH),
-        weekday = (liveNow.get(Calendar.DAY_OF_WEEK) - 1), steps = steps, bpm = batFlow ?: bpm,
-        battery = batFlow ?: battery, weather = weatherChannels
+        weekday = liveNow.get(Calendar.DAY_OF_WEEK) - 1,
+        steps = steps, bpm = bpm, battery = batFlow ?: battery, weather = weatherChannels
     ) else SimValues(
         hour = hour, minute = minute, second = second, weekday = weekday,
         day = day, month = month, steps = steps, bpm = bpm, battery = battery,
         weather = weatherChannels
     )
 
-    val issues = remember(face, contract) { FaceValidator.check(face, contract) }
-    val hasErr = FaceValidator.hasErrors(issues)
-
+    val issues  = remember(originalFace, contract) { FaceValidator.check(originalFace, contract) }
+    val hasErr  = FaceValidator.hasErrors(issues)
     val DOW_LABELS = listOf("Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb")
 
     Column(Modifier.fillMaxSize()) {
@@ -112,16 +159,17 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                     enabled = !hasErr,
                     colors = ButtonDefaults.buttonColors(containerColor = CyanDark, contentColor = Cyan,
                         disabledContainerColor = CyanDark.copy(alpha = 0.3f), disabledContentColor = TxtSec)
-                ) { Text(if (hasErr) "Corrija os erros para enviar" else "Enviar ao relógio", fontSize = 12.sp) }
+                ) { Text(if (hasErr) "Corrija os erros" else "Enviar ao relógio", fontSize = 12.sp) }
             }
         }
 
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
             // Preview
             item {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    FacePreview(face, sim, showBoxes, modifier = Modifier.width(180.dp))
+                    FacePreview(displayFace, sim, showBoxes, modifier = Modifier.width(180.dp))
                 }
             }
 
@@ -130,16 +178,58 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = showBoxes, onClick = { showBoxes = !showBoxes },
                         label = { Text("Caixas", fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CyanDark, selectedLabelColor = Cyan,
-                            containerColor = BgCard, labelColor = TxtSec))
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CyanDark, selectedLabelColor = Cyan, containerColor = BgCard, labelColor = TxtSec))
                     FilterChip(selected = live, onClick = { live = !live },
                         label = { Text("Ao vivo", fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CyanDark, selectedLabelColor = Cyan,
-                            containerColor = BgCard, labelColor = TxtSec))
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CyanDark, selectedLabelColor = Cyan, containerColor = BgCard, labelColor = TxtSec))
                 }
             }
 
-            // Painel SIMULAR
+            // ── Painel FUNDO ──────────────────────────────────────────────
+            item {
+                HudCard {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("FUNDO", color = TxtSec, fontSize = 10.sp, letterSpacing = 2.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { wallLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                modifier = Modifier.weight(1f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, CyanDark),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Cyan)
+                            ) {
+                                Icon(Icons.Default.Image, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Escolher imagem", fontSize = 12.sp)
+                            }
+                            if (wallArgb != null) {
+                                OutlinedButton(
+                                    onClick = { wallArgb = null; darken = 45; tint = 0; keepFrame = true },
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, CyanDark),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TxtSec)
+                                ) {
+                                    Icon(Icons.Default.Restore, null, Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                        if (wallArgb != null) {
+                            // Moldura
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Manter moldura MYND", color = TxtSec, fontSize = 12.sp)
+                                Switch(checked = keepFrame, onCheckedChange = { keepFrame = it },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Cyan, checkedTrackColor = CyanDark))
+                            }
+                            // Escurecer
+                            SimSlider("Escurecer", darken, 0, 90) { darken = it }
+                            // Tom ciano
+                            SimSlider("Tom ciano", tint, 0, 100) { tint = it }
+                            Text("As molduras combinam com os mostradores MYND HUD (mesma posição dos painéis).",
+                                color = TxtSec, fontSize = 10.sp, lineHeight = 14.sp)
+                        }
+                    }
+                }
+            }
+
+            // ── Painel SIMULAR ────────────────────────────────────────────
             if (!live) {
                 item {
                     HudCard {
@@ -148,8 +238,7 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                             SimSlider("Hora", hour, 0, 23) { hour = it }
                             SimSlider("Minuto", minute, 0, 59) { minute = it }
                             SimSlider("Segundo", second, 0, 59) { second = it }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Dia da semana", color = TxtSec, fontSize = 12.sp)
                                 Text(DOW_LABELS[weekday], color = TxtPri, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
@@ -160,7 +249,6 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                             SimSlider("Passos", steps, 0, 30000, step = 10) { steps = it }
                             SimSlider("BPM", bpm, 40, 200) { bpm = it }
                             SimSlider("Bateria", battery, 0, 100) { battery = it }
-
                             if (usesBambu) {
                                 HorizontalDivider(color = CyanDark, modifier = Modifier.padding(vertical = 4.dp))
                                 Text("BAMBU", color = TxtSec, fontSize = 10.sp, letterSpacing = 2.sp)
@@ -180,7 +268,7 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                 }
             }
 
-            // Painel VERIFICAÇÃO
+            // ── Painel VERIFICAÇÃO ────────────────────────────────────────
             item {
                 HudCard {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -193,9 +281,9 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                         } else {
                             issues.forEach { issue ->
                                 val color = if (issue.level == FaceValidator.Level.ERRO) RedBad else Orange
-                                val icon2 = if (issue.level == FaceValidator.Level.ERRO) Icons.Default.Error else Icons.Default.Warning
+                                val ic = if (issue.level == FaceValidator.Level.ERRO) Icons.Default.Error else Icons.Default.Warning
                                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(icon2, null, tint = color, modifier = Modifier.size(14.dp).padding(top = 1.dp))
+                                    Icon(ic, null, tint = color, modifier = Modifier.size(14.dp).padding(top = 1.dp))
                                     Text(issue.msg, color = color, fontSize = 12.sp, lineHeight = 16.sp)
                                 }
                             }
