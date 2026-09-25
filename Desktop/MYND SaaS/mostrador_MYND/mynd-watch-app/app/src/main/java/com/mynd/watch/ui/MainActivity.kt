@@ -48,9 +48,11 @@ import androidx.lifecycle.lifecycleScope
 import com.mynd.watch.bambu.BambuCloud
 import com.mynd.watch.ble.LinkState
 import com.mynd.watch.data.AppLog
+import com.mynd.watch.data.Library
 import com.mynd.watch.data.Settings
 import com.mynd.watch.service.PrintSnapshot
 import com.mynd.watch.service.WatchService
+import com.mynd.watch.studio.FaceLibrary
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -58,8 +60,15 @@ class MainActivity : ComponentActivity() {
     private val perms = ActivityResultContracts.RequestMultiplePermissions()
     private val askPerms = registerForActivityResult(perms) { WatchService.start(this) }
 
+    fun sendToWatch(ref: FaceLibrary.Ref) = startService(
+        Intent(this, WatchService::class.java)
+            .setAction(WatchService.ACTION_UPLOAD_LIBRARY)
+            .putExtra("id", ref.id).putExtra("v", ref.v)
+    )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Library.init(this)
         val needed = buildList {
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_SCAN)
@@ -256,9 +265,7 @@ class MainActivity : ComponentActivity() {
     // ── Faces tab ───────────────────────────────────────────────────────
     @Composable
     private fun FacesTab() {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Biblioteca na próxima versão", color = TxtSec, fontSize = 14.sp)
-        }
+        LibraryScreen(sendToWatch = { ref -> sendToWatch(ref) })
     }
 
     // ── Bambu tab ───────────────────────────────────────────────────────

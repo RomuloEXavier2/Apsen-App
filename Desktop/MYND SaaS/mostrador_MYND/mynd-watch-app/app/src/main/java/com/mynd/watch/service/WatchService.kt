@@ -18,7 +18,11 @@ import com.mynd.watch.bambu.PrintState
 import com.mynd.watch.ble.LinkState
 import com.mynd.watch.ble.WatchLink
 import com.mynd.watch.data.AppLog
+import com.mynd.watch.data.Library
 import com.mynd.watch.data.Settings
+import com.mynd.watch.studio.FaceFile
+import com.mynd.watch.studio.FaceLibrary
+import com.mynd.watch.studio.FaceValidator
 import com.mynd.watch.watch.WatchClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,17 +52,25 @@ data class PrintSnapshot(
 class WatchService : Service() {
 
     companion object {
-        const val ACTION_UPLOAD_FACE = "com.mynd.watch.UPLOAD_FACE"
-        const val ACTION_UPLOAD_URI  = "com.mynd.watch.UPLOAD_URI"
+        const val ACTION_UPLOAD_FACE    = "com.mynd.watch.UPLOAD_FACE"
+        const val ACTION_UPLOAD_URI     = "com.mynd.watch.UPLOAD_URI"
+        const val ACTION_UPLOAD_LIBRARY = "com.mynd.watch.UPLOAD_LIBRARY"
 
         private val notifQueue = Channel<Pair<String, String>>(Channel.BUFFERED)
         fun enqueueNotification(title: String, text: String) { notifQueue.trySend(title to text) }
 
         @Volatile var instance: WatchService? = null
-        val statusFlow    = MutableStateFlow("parado")
-        val linkStateFlow = MutableStateFlow(LinkState.DISCONNECTED)
-        val printFlow     = MutableStateFlow<PrintSnapshot?>(null)
-        val batteryFlow   = MutableStateFlow<Int?>(null)
+        val statusFlow       = MutableStateFlow("parado")
+        val linkStateFlow    = MutableStateFlow(LinkState.DISCONNECTED)
+        val printFlow        = MutableStateFlow<PrintSnapshot?>(null)
+        val batteryFlow      = MutableStateFlow<Int?>(null)
+        val installedFlow    = MutableStateFlow<FaceLibrary.Ref?>(null)
+        val lastUploadResult = MutableStateFlow<UploadResult?>(null)
+
+        sealed class UploadResult {
+            data class Ok(val ref: FaceLibrary.Ref) : UploadResult()
+            data class Fail(val msg: String) : UploadResult()
+        }
 
         fun start(ctx: Context) {
             instance?.let { ctx.stopService(Intent(ctx, WatchService::class.java)) }
@@ -84,6 +96,8 @@ class WatchService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        Library.init(this)
+        installedFlow.value = Library.lib.installed()
         statusFlow.value = "Iniciando..."
         settings = Settings(this)
         link = WatchLink(this)
@@ -104,6 +118,11 @@ class WatchService : Service() {
             ACTION_UPLOAD_URI -> {
                 val uri = intent.getStringExtra("uri")?.let { Uri.parse(it) } ?: return START_STICKY
                 scope.launch { uploadUri(uri) }
+            }
+            ACTION_UPLOAD_LIBRARY -> {
+                val id = intent.getStringExtra("id") ?: return START_STICKY
+                val v  = intent.getIntExtra("v", -1).takeIf { it >= 0 } ?: return START_STICKY
+                scope.launch { uploadLibrary(id, v) }
             }
         }
         return START_STICKY
@@ -201,6 +220,27 @@ class WatchService : Service() {
     }
 
     // ── Mostradores ──────────────────────────────────────────────────────
+    private suspend fun uploadLibrary(id: String, v: Int) {
+        val ref = FaceLibrary.Ref(id, v)
+        val bytes = runCatching { Library.lib.bytes(ref) }.getOrElse {
+            AppLog.add("envio bloqueado: versão não encontrada $id v$v"); return
+        }
+        val face = runCatching { FaceFile.parse(bytes) }.getOrElse {
+            AppLog.add("envio bloqueado: .bin corrompido"); return
+        }
+        val contract = Library.lib.get(id)?.contract
+        val issues = FaceValidator.check(face, contract, bytes.size)
+        if (FaceValidator.hasErrors(issues)) {
+            val msg = issues.first { it.level == FaceValidator.Level.ERRO }.msg
+            AppLog.add("envio bloqueado: $msg")
+            updateStatus("Envio bloqueado")
+            lastUploadResult.value = UploadResult.Fail(msg)
+            return
+        }
+        uploadBytes(bytes, "$id v$v")
+        // uploadBytes sets status; result is communicated via lastUploadResult below
+    }
+
     private suspend fun uploadAsset(name: String) =
         uploadBytes(assets.open("faces/$name").readBytes(), name)
 
@@ -218,8 +258,18 @@ class WatchService : Service() {
         AppLog.add("enviando $name (${bytes.size} bytes)")
         runCatching {
             bleLock.withLock { watch.uploadFace(bytes) { p -> if (p % 10 == 0) updateStatus("Enviando $name: $p%") } }
-        }.onSuccess { AppLog.add("$name instalado"); updateStatus("Mostrador instalado") }
-         .onFailure { AppLog.add("envio falhou: ${it.message}") }
+        }.onSuccess {
+            AppLog.add("$name instalado"); updateStatus("Mostrador instalado")
+            // se veio de uploadLibrary, marcar como instalado e emitir Ok
+            val parts = name.split(" v")
+            if (parts.size == 2) {
+                val ref = runCatching { FaceLibrary.Ref(parts[0], parts[1].toInt()) }.getOrNull()
+                if (ref != null) { Library.lib.markInstalled(ref); installedFlow.value = ref; lastUploadResult.value = UploadResult.Ok(ref) }
+            }
+        }.onFailure {
+            AppLog.add("envio falhou: ${it.message}")
+            lastUploadResult.value = UploadResult.Fail(it.message ?: "erro desconhecido")
+        }
     }
 
     // ── Notificação do serviço ────────────────────────────────────────────
