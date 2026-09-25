@@ -50,6 +50,7 @@ import com.mynd.watch.bambu.BambuCloud
 import com.mynd.watch.ble.LinkState
 import com.mynd.watch.data.AppLog
 import com.mynd.watch.data.Library
+import com.mynd.watch.data.NotifFilter
 import com.mynd.watch.data.Settings
 import com.mynd.watch.service.PrintSnapshot
 import com.mynd.watch.service.UploadResult
@@ -71,6 +72,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Library.init(this)
+        NotifFilter.init(this)
         val needed = buildList {
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_SCAN)
@@ -247,6 +249,8 @@ class MainActivity : ComponentActivity() {
         val battOptLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             battOptNeeded = !pm.isIgnoringBatteryOptimizations(ctx.packageName)
         }
+        var seenApps by remember { mutableStateOf(NotifFilter.seenApps()) }
+        var blocked  by remember { mutableStateOf(NotifFilter.blockedApps()) }
 
         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // Status card
@@ -289,6 +293,53 @@ class MainActivity : ComponentActivity() {
                     }
                     OutlineAction(Icons.Default.NotificationsActive, "Liberar acesso às notificações") {
                         startActivity(Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    }
+                }
+            }
+            // FASE 8: filtro de notificações por app
+            item {
+                HudCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Notifications, null, tint = Cyan, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("NOTIFICAÇÕES", color = TxtSec, fontSize = 10.sp, letterSpacing = 2.sp)
+                        }
+                        if (seenApps.isEmpty()) {
+                            Text(
+                                "Nenhum app visto ainda. As notificações aparecem aqui após chegar.",
+                                color = TxtSec, fontSize = 12.sp, lineHeight = 16.sp
+                            )
+                        } else {
+                            seenApps.forEach { pkg ->
+                                val label = runCatching {
+                                    ctx.packageManager.getApplicationLabel(
+                                        ctx.packageManager.getApplicationInfo(pkg, 0)
+                                    ).toString()
+                                }.getOrDefault(pkg)
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(label, color = TxtPri, fontSize = 13.sp)
+                                        Text(pkg, color = TxtSec, fontSize = 10.sp)
+                                    }
+                                    Switch(
+                                        checked = pkg !in blocked,
+                                        onCheckedChange = { on ->
+                                            NotifFilter.setBlocked(pkg, !on)
+                                            blocked = NotifFilter.blockedApps()
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = Cyan,
+                                            checkedTrackColor = CyanDark
+                                        )
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
