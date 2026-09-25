@@ -5,7 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -58,6 +58,32 @@ internal fun OutlineAction(icon: ImageVector, label: String, onClick: () -> Unit
         Icon(icon, null, Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
         Text(label)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun <T> HudDropdown(label: String, selected: T, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.find { it.first == selected }?.second ?: selected.toString()
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedLabel, onValueChange = {}, readOnly = true,
+            label = { Text(label, fontSize = 11.sp) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Cyan, unfocusedBorderColor = CyanDark,
+                focusedTextColor = TxtPri, unfocusedTextColor = TxtPri,
+                focusedLabelColor = TxtSec, unfocusedLabelColor = TxtSec
+            ),
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable)
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = BgCard) {
+            options.forEach { (opt, lbl) ->
+                DropdownMenuItem(text = { Text(lbl, color = TxtPri, fontSize = 13.sp) },
+                    onClick = { onSelect(opt); expanded = false })
+            }
+        }
     }
 }
 

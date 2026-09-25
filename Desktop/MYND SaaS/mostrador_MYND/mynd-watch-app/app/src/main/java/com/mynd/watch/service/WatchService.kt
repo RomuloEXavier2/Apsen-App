@@ -20,6 +20,8 @@ import com.mynd.watch.ble.WatchLink
 import com.mynd.watch.data.AppLog
 import com.mynd.watch.data.Library
 import com.mynd.watch.data.Settings
+import com.mynd.watch.studio.ContractWeather
+import com.mynd.watch.studio.DataContract
 import com.mynd.watch.studio.FaceFile
 import com.mynd.watch.studio.FaceLibrary
 import com.mynd.watch.studio.FaceValidator
@@ -212,9 +214,13 @@ class WatchService : Service() {
             for ((t, x) in events.check(print)) enqueueNotification(t, x)
             if (printDirty && System.currentTimeMillis() - last >= 15_000 && print.gcodeState != null) {
                 printDirty = false; last = System.currentTimeMillis()
-                runCatching { bleLock.withLock { watch.weather(BambuWeatherMapper.toWeather(print)) } }
-                    .onSuccess { AppLog.add("Bambu → relógio: ${print.statePt} ${print.percent}% faltam ${PrintState.fmtRemaining(print.remainingMin)}") }
-                    .onFailure { AppLog.add("clima falhou: ${it.message}") }
+                val inst     = Library.lib.installed()
+                val contract = inst?.let { Library.lib.get(it.id)?.contract } ?: DataContract.REAL_WEATHER
+                val frame    = ContractWeather.build(contract, print)
+                if (frame != null)
+                    runCatching { bleLock.withLock { watch.weather(frame) } }
+                        .onSuccess { AppLog.add("Bambu → relógio: ${print.statePt} ${print.percent}% faltam ${PrintState.fmtRemaining(print.remainingMin)}") }
+                        .onFailure { AppLog.add("clima falhou: ${it.message}") }
             }
             if (System.currentTimeMillis() / 1000 % 300 == 0L) cloud.pushall(serial)
         }

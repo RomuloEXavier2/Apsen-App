@@ -24,8 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mynd.watch.data.Library
 import com.mynd.watch.service.WatchService
+import com.mynd.watch.studio.CurrentSrc
+import com.mynd.watch.studio.DataContract
 import com.mynd.watch.studio.FaceFile
 import com.mynd.watch.studio.FaceLibrary
+import com.mynd.watch.studio.FaceValidator
+import com.mynd.watch.studio.IconSrc
+import com.mynd.watch.studio.PairSrc
 import com.mynd.watch.studio.Rgb565 as StudioRgb565
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -110,6 +115,19 @@ private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (F
     var dupPending by remember { mutableStateOf<FaceLibrary.Ref?>(null) }
     var dupName by remember { mutableStateOf("") }
 
+    // Contrato de dados
+    var showContractFor by remember { mutableStateOf<FaceLibrary.Entry?>(null) }
+    var ccurrent by remember { mutableStateOf(CurrentSrc.REAL_WEATHER) }
+    var cpair    by remember { mutableStateOf(PairSrc.REAL_WEATHER) }
+    var cicon    by remember { mutableStateOf(IconSrc.REAL_WEATHER) }
+    val contractIssues = remember(ccurrent, cpair, cicon, showContractFor?.id) {
+        val ent = showContractFor ?: return@remember emptyList<FaceValidator.Issue>()
+        runCatching {
+            val bytes = Library.lib.bytes(FaceLibrary.Ref(ent.id, ent.latest!!.n))
+            FaceValidator.check(FaceFile.parse(bytes), DataContract(ccurrent, cpair, cicon))
+        }.getOrElse { emptyList() }
+    }
+
     Column(Modifier.fillMaxSize()) {
         // Topo com título e ações
         Row(
@@ -172,6 +190,47 @@ private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (F
         )
     }
 
+    // Diálogo: contrato de dados
+    showContractFor?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { showContractFor = null },
+            containerColor = BgCard,
+            title = { Text("Dados do mostrador", color = TxtPri) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HudDropdown("Número (campos 13/24)", ccurrent,
+                        listOf(CurrentSrc.REAL_WEATHER to "Clima real", CurrentSrc.BAMBU_PERCENT to "Impressão %",
+                               CurrentSrc.BAMBU_NOZZLE to "Bico °C", CurrentSrc.BAMBU_BED to "Mesa °C",
+                               CurrentSrc.BAMBU_LAYER to "Camada atual")
+                    ) { ccurrent = it }
+                    HudDropdown("Par (campo 33)", cpair,
+                        listOf(PairSrc.REAL_WEATHER to "Clima real (mín/máx)", PairSrc.BAMBU_REMAINING_HM to "Tempo restante h/min",
+                               PairSrc.BAMBU_PERCENT_REMAINING_MIN to "% / minutos", PairSrc.BAMBU_NOZZLE_TARGET to "Bico atual/alvo",
+                               PairSrc.BAMBU_BED_TARGET to "Mesa atual/alvo", PairSrc.BAMBU_LAYERS to "Camada/total")
+                    ) { cpair = it }
+                    HudDropdown("Ícone (imagem 6)", cicon,
+                        listOf(IconSrc.REAL_WEATHER to "Clima real", IconSrc.BAMBU_PROGRESS_16 to "Barra de progresso (16)",
+                               IconSrc.BAMBU_NOZZLE_LEVEL to "Bico (níveis desenhados)")
+                    ) { cicon = it }
+                    if (contractIssues.isNotEmpty()) {
+                        HorizontalDivider(color = CyanDark.copy(alpha = 0.5f))
+                        contractIssues.forEach { issue ->
+                            val color = if (issue.level == FaceValidator.Level.ERRO) RedBad else Orange
+                            Text("• ${issue.msg}", color = color, fontSize = 11.sp, lineHeight = 15.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    Library.lib.setContract(entry.id, DataContract(ccurrent, cpair, cicon))
+                    reload(); showContractFor = null
+                }) { Text("Salvar", color = Cyan) }
+            },
+            dismissButton = { TextButton(onClick = { showContractFor = null }) { Text("Cancelar", color = TxtSec) } }
+        )
+    }
+
     // BottomSheet: versões
     showVersionsFor?.let { entry ->
         ModalBottomSheet(
@@ -179,8 +238,19 @@ private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (F
             containerColor = BgCard
         ) {
             Column(Modifier.padding(16.dp).fillMaxWidth()) {
-                Text(entry.name, color = TxtPri, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(entry.name, color = TxtPri, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = {
+                        ccurrent = entry.contract.current
+                        cpair    = entry.contract.pair
+                        cicon    = entry.contract.icon
+                        showContractFor = entry
+                        showVersionsFor = null
+                    }) { Text("Dados do mostrador...", color = TxtSec, fontSize = 12.sp) }
+                }
+                Spacer(Modifier.height(4.dp))
+                HorizontalDivider(color = CyanDark.copy(alpha = 0.4f))
+                Spacer(Modifier.height(4.dp))
                 entry.versions.sortedByDescending { it.n }.forEach { ver ->
                     val fmt = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
                     val dateStr = fmt.format(Date(ver.created))
@@ -279,4 +349,5 @@ private fun VersionBadge(text: String, color: androidx.compose.ui.graphics.Color
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), letterSpacing = 1.sp)
     }
 }
+
 
