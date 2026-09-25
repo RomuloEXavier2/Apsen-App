@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone provisório: hexágono ciano (trocar pela logo MYND depois) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="#000000" android:pathData="M0,0h48v48h-48z"/>
+    <path android:strokeColor="#00C8FF" android:strokeWidth="3"
+        android:pathData="M24,5 L40,14 L40,34 L24,43 L8,34 L8,14 Z"/>
+    <path android:fillColor="#00C8FF" android:pathData="M24,24m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0"/>
+</vector>

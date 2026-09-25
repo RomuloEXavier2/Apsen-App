@@ -1,0 +1,201 @@
+==========================================================================
+ MYND WATCH — INSTRUÇÕES PARA O AGENTE (Claude Code no VS Code)
+==========================================================================
+Leia este arquivo INTEIRO antes de agir. Depois leia docs/PROTOCOLO.md e
+docs/MOSTRADOR_JL.md. Trabalhe fase por fase, na ordem. Ao final de cada
+fase: rode os testes, faça um commit e peça ao usuário o teste no aparelho
+descrito em "ACEITE". Só avance quando o aceite passar.
+
+Idioma: fale com o usuário em português do Brasil, de forma curta e direta.
+
+--------------------------------------------------------------------------
+0. OBJETIVO
+--------------------------------------------------------------------------
+Criar o app Android "MYND Watch", que SUBSTITUI o app oficial da Haylou
+para o relógio HAYLOU Watch S6 do usuário e faz, só com o celular (na rua):
+
+  1. Manter o relógio conectado 24h (serviço em primeiro plano).
+  2. Acertar a hora a cada conexão.
+  3. Repassar as notificações do celular (WhatsApp etc.) para o relógio.
+  4. Ler a impressora Bambu Lab A1 pela NUVEM da Bambu e mostrar no
+     mostrador MYND_HUD_BAMBU (barra de progresso, bico, tempo restante)
+     + notificações (iniciou, 25/50/75/90 %, pausa, falha, fim).
+  5. Instalar mostradores .bin (os da pasta assets/faces e, depois,
+     arquivos escolhidos pelo usuário).
+
+Todo o protocolo já foi descoberto e VALIDADO NO RELÓGIO REAL com Python
+(reference/python). O app Kotlin é um port disso. Em caso de dúvida sobre
+um comportamento, o Python é a fonte da verdade.
+
+--------------------------------------------------------------------------
+1. REGRAS
+--------------------------------------------------------------------------
+- NÃO altere o formato dos quadros, o CRC nem o mapeamento de clima sem
+  que ProtocolTest continue passando. Esses testes usam bytes reais
+  capturados do app oficial.
+- Nunca grave senha da Bambu. Só o token (DataStore). Nunca faça commit
+  de tokens, bambu_config.json ou logs btsnoop (têm dados pessoais).
+- O relógio aceita UMA conexão BLE. Para testar, o usuário precisa forçar
+  a parada do app Haylou (Configurações > Apps > Haylou > Forçar parada)
+  ou desativar o Bluetooth dele nas configurações do app.
+- Uma operação GATT por vez (WatchLink já serializa com Mutex). Não
+  escreva na GATT fora de WatchLink.
+- Sempre que mexer em imagem de mostrador: largura com linha múltipla de
+  4 bytes (ver MOSTRADOR_JL.md). Isso já quebrou uma vez.
+- Mudanças pequenas e testáveis. Explique ao usuário o que ele deve ver.
+
+--------------------------------------------------------------------------
+2. AMBIENTE (Windows do usuário)
+--------------------------------------------------------------------------
+- Android Studio instalado (traz JDK 17 + SDK). No VS Code você pode usar
+  o JDK do Android Studio: C:\Program Files\Android\Android Studio\jbr
+  (setar JAVA_HOME no terminal se o gradle reclamar).
+- O projeto NÃO tem gradle wrapper ainda (não foi possível baixar). Faça:
+    a) abrir a pasta no Android Studio uma vez (ele cria o wrapper e o
+       local.properties com sdk.dir), OU
+    b) com gradle instalado: `gradle wrapper --gradle-version 8.11.1`
+- Se o sync falhar por versão, atualize AGP/Kotlin/Compose BOM para as
+  estáveis mais recentes compatíveis (build.gradle.kts raiz e app/).
+- Celular: Opções do desenvolvedor > Depuração USB ligada; `adb devices`
+  deve listar o aparelho. adb fica em %LOCALAPPDATA%\Android\Sdk\platform-tools.
+
+Comandos úteis (na raiz do projeto):
+  gradlew.bat testDebugUnitTest          -> testes JVM (protocolo)
+  gradlew.bat installDebug               -> compila e instala no celular
+  adb logcat -s MYND MYND/Link MYND/Watch MYND/BambuCloud AndroidRuntime
+  adb shell am force-stop com.haylou...   (descubra o pacote com
+                                           adb shell pm list packages | findstr -i haylou)
+
+--------------------------------------------------------------------------
+3. ARQUITETURA (já criada — completar os TODO(agente))
+--------------------------------------------------------------------------
+app/src/main/java/com/mynd/watch/
+  core/        PURO Kotlin, sem Android, 100% testado
+    Protobuf.kt      varint + bytes (encode/decode)
+    Frame.kt         quadro EA..EF + Deframer (remonta fatias BLE)
+    Crc16.kt         CRC-16/CCITT-FALSE + campo 5 do envio de mostrador
+    Commands.kt      Cmd (constantes), WatchCommands (hora, notificação,
+                     clima, info, bateria), WeatherPayload, FaceUpload
+                     (máquina de estados do envio)
+  ble/WatchLink.kt   GATT cru: scan, conectar, MTU 247, CCCD, escrita
+                     serializada, fluxo `incoming` de Frames por canal
+  watch/WatchClient.kt  API alto nível: info(), battery(), syncTime(),
+                     notify(), weather(), uploadFace(); responde sync 0xBBB
+  bambu/PrintState.kt   PrintState (merge do JSON MQTT), PrintEvents,
+                     BambuWeatherMapper (Bambu -> comando de clima)
+  bambu/BambuCloud.kt   login na nuvem (API não oficial) + MQTT HiveMQ
+  service/WatchService.kt   serviço 24h: loops de conexão, notificações,
+                     Bambu, envio de mostrador
+  service/NotificationForwarder.kt  NotificationListenerService + BootReceiver
+  data/Settings.kt   DataStore + AppLog (log em memória p/ aba Logs)
+  ui/MainActivity.kt Compose: abas Relógio / Mostradores / Bambu / Logs
+app/src/test/.../ProtocolTest.kt   vetores reais (clima, CRC, quadros...)
+app/src/main/assets/faces/          MYND_HUD.bin, MYND_HUD_BAMBU.bin
+reference/python/   implementação validada (haylou_s6.py, bambu_watch.py,
+                    jlface.py = gerador de mostrador, hud.py = arte MYND)
+reference/sondas/   mostradores de teste de tipos (ver seção 7)
+
+--------------------------------------------------------------------------
+4. FASES
+--------------------------------------------------------------------------
+FASE 1 — Build e testes JVM
+  - Gerar wrapper, sincronizar, compilar.
+    Situação do código: core/ e bambu/PrintState.kt JÁ foram compilados
+    com kotlinc 2.4 e passaram em todos os vetores de teste. As camadas
+    Android (ble/, watch/, service/, ui/, bambu/BambuCloud.kt, data/) foram
+    escritas sem o SDK Android disponível -> espere ajustes pequenos de
+    import/API; corrija sem mudar o comportamento.
+  - `gradlew.bat testDebugUnitTest` -> ProtocolTest 100% verde.
+    Se `climaReproduzOAppOficial` ou `crcDoMostradorOficial` falhar, o
+    problema está no port (compare com reference/python/haylou_s6.py e
+    bambu_watch.py: weather_payload), NÃO nos vetores.
+  ACEITE: testes verdes + APK instalado abre as 4 abas.
+
+FASE 2 — Conexão BLE
+  - Com o app Haylou parado, tocar "Iniciar / reconectar".
+  - Log esperado (aba Logs/logcat): "relógio conectado: HAYLOU Watch S6
+    V25.26.001... (MTU 247)". O relógio deve acertar a hora.
+  - Tratar: permissões negadas, Bluetooth desligado, reconexão após
+    sair do alcance (voltar e reconectar sozinho em <30 s).
+  - Guardar o MAC e usar conexão direta nas próximas vezes (já feito).
+  ACEITE: conecta, hora certa, reconecta sozinho; "Notificação de teste"
+          vibra o relógio com "MYND / Teste do app MYND Watch".
+
+FASE 3 — Notificações do celular
+  - Liberar acesso às notificações pelo botão da aba Relógio.
+  - Receber WhatsApp/Telegram/etc. e repassar (NotificationForwarder).
+  - Filtrar: duplicadas, notificações "em andamento", resumos de grupo,
+    o próprio app. Adicionar tela simples para escolher quais apps
+    repassar (lista de pacotes, salva em Settings).
+  - Investigar appId (campo 3 do cmd 0x13): testar valores e anotar qual
+    ícone aparece no relógio; criar tabela pacote -> appId.
+  ACEITE: mensagem do WhatsApp chega no relógio em <5 s, sem duplicar.
+
+FASE 4 — Mostradores
+  - Aba Mostradores: enviar MYND_HUD.bin e MYND_HUD_BAMBU.bin (progresso
+    na notificação do serviço). Deve terminar com status 5.
+  - Se vier status 4: o CRC/F5 está errado (ver Crc16.faceField5).
+  - Adicionar "Escolher arquivo .bin" (OpenDocument) com validação
+    (bytes 14..15 == "JL").
+  ACEITE: os dois mostradores instalam pelo celular.
+
+FASE 5 — Bambu pela nuvem
+  - Aba Bambu: serial (usuário tem A1; serial está na tela da impressora
+    em Configurações > Device), e-mail e senha da conta Bambu. Se a conta
+    usa login Google/Apple, o usuário precisa criar senha na conta Bambu.
+  - Fluxo em BambuCloud: login -> (código por e-mail se pedir) -> uid ->
+    MQTT us.mqtt.bambulab.com:8883 user "u_<uid>" senha token, tópico
+    device/<serial>/report, pushall em device/<serial>/request.
+  - A API é NÃO oficial: se algum endpoint falhar, confira no projeto
+    ha-bambulab (GitHub greghesp/ha-bambulab, arquivo pybambu/bambu_cloud.py)
+    e ajuste. Tratar token expirado (pedir login de novo).
+  - Com o mostrador MYND_HUD_BAMBU ativo, a cada mudança (>=15 s) enviar
+    BambuWeatherMapper.toWeather(). Notificações via PrintEvents.
+  ACEITE (com impressão rodando e o celular fora do Wi-Fi de casa, em 4G):
+    barra e "progresso/minutos" atualizam; chega "Bambu 25%" etc.
+
+FASE 6 — Robustez 24h
+  - Pedir ao usuário para excluir o app da otimização de bateria
+    (Intent ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).
+  - Reconexão BLE com backoff; fila de notificações enquanto desconectado
+    (reenviar as últimas N ao reconectar).
+  - Acertar hora também a cada 6 h e em mudança de fuso.
+  ACEITE: 24 h de uso normal sem perder conexão por mais que alguns minutos.
+
+--------------------------------------------------------------------------
+5. DEPURAÇÃO
+--------------------------------------------------------------------------
+- Todos os TX/RX aparecem no logcat com a tag MYND/Link ("TX 8801 Frame(...)").
+- Se o relógio não responde a algo: capture o app OFICIAL fazendo a mesma
+  coisa (Opções do desenvolvedor > Registro de espionagem HCI Bluetooth,
+  depois `adb bugreport` e abrir btsnoop_hci.log no Wireshark, filtro
+  `btatt.opcode == 0x52 || btatt.opcode == 0x1b`) e compare byte a byte
+  com o nosso TX.
+- Envio de arquivo travando: ver se 9000 {2:3,3:offset} está chegando; se o
+  offset não avança, reduzir o tamanho do pacote (mtu-3 -> 180) ou pôr
+  delay de 5–10 ms entre pacotes em WatchLink.writeRaw.
+- "sem ACK": alguns comandos não têm ACK; não é erro fatal.
+
+--------------------------------------------------------------------------
+6. TESTES
+--------------------------------------------------------------------------
+- JVM (obrigatório a cada mudança no core/bambu): gradlew.bat testDebugUnitTest
+- Ao portar qualquer coisa nova do Python, crie um teste com bytes reais.
+- Checklist no aparelho a cada release: conecta · hora · notificação de
+  teste · WhatsApp · envio de mostrador · Bambu (se configurada) ·
+  reconexão ao voltar de fora do alcance.
+
+--------------------------------------------------------------------------
+7. BACKLOG / DESCOBERTAS PENDENTES (depois das fases)
+--------------------------------------------------------------------------
+- Eventos do relógio (8802): 0x7D1/0x7D6/0x7D7 — mapear (bateria? passos?).
+- Botões do relógio -> ações: capturar com HCI o app oficial usando
+  música (play/pause/próx/ant/volume), câmera remota, "encontrar
+  telefone", chamada (atender/recusar). Objetivo: usar como controle
+  remoto de IoT e "caixa de diálogo sim/não" (tela de chamada).
+- Sincronizar saúde (passos, batimento, sono, SpO2) -> Firebase.
+- Sondas de IMAGEM (reference/sondas/sonda_D1..D3.bin): descobrir tipos de
+  imagem ligados a dados (ex.: dígitos da temperatura) para mostrar
+  "13h51" com fonte própria e mês em português.
+- Gerador de mostrador dentro do app (port de jlface.py + hud.py).
+- Mapear appId das notificações (ícones).

@@ -1,0 +1,387 @@
+==========================================================================================
+ MYND WATCH — INSTRUÇÕES DE EXECUÇÃO  ·  Documento v2.0  ·  App alvo: 0.2.0 → 0.2.7
+==========================================================================================
+Para o agente (Claude Code no VS Code). Este documento é FECHADO: tudo que você precisa
+decidir já está decidido aqui. Se algo não estiver escrito, NÃO invente — pare e pergunte
+ao usuário, citando o número do passo.
+
+Leia o documento inteiro antes de começar. Execute as fases EM ORDEM. Cada fase termina com:
+  (1) testes JVM verdes, (2) build instalado no celular, (3) ACEITE confirmado pelo usuário,
+  (4) commit com a mensagem exata indicada, (5) versionName/versionCode atualizados.
+Fale com o usuário em português do Brasil, curto e direto.
+
+Pasta raiz do projeto (Windows): C:\Users\perfil\Desktop\MYND SaaS\mostrador_MYND\mynd-watch-app
+Abaixo, "RAIZ" = essa pasta. Caminhos de código são relativos a RAIZ.
+
+------------------------------------------------------------------------------------------
+ 0. OBJETIVO DESTA VERSÃO
+------------------------------------------------------------------------------------------
+Dar ao usuário controle total do relógio SEM risco de perder o mostrador bom:
+  A. Biblioteca de mostradores com VERSÕES (nada é sobrescrito, nunca).
+  B. Pré-visualização FIEL (simulador) + VERIFICADOR que bloqueia envio com erro.
+  C. Envio seguro: "Ficou bom?  [Manter]  [Desfazer]" + "Restaurar último aprovado".
+  D. Contrato de dados por mostrador (o app manda para o relógio o que o mostrador espera).
+  E. Estúdio: trocar papel de parede SEM perder a moldura HUD, editar campos, trocar fonte/cor dos dígitos.
+  F. Automação: trocar para o mostrador Bambu quando a impressão começar e voltar quando terminar.
+  G. Filtro de notificações por app.
+
+Limites do hardware (NÃO tente contornar):
+  - O relógio NÃO devolve o mostrador instalado. A biblioteca do app é a única cópia → por isso versões + backup.
+  - A fonte dos campos de texto é a do firmware (tamanho único). Só dá para mudar posição, largura, cor, alinhamento.
+  - Só existem 3 canais de dados nossos (comando de clima): atual, par mín/máx, ícone 0..15.
+
+------------------------------------------------------------------------------------------
+ 1. REGRAS GERAIS (valem para todas as fases)
+------------------------------------------------------------------------------------------
+R1. NÃO altere estes arquivos, exceto onde uma fase mandar explicitamente:
+      app/src/main/java/com/mynd/watch/core/*            (protocolo validado)
+      app/src/main/java/com/mynd/watch/bambu/PrintState.kt (mapeamento v4 validado)
+      app/src/main/java/com/mynd/watch/studio/*           (núcleo Studio validado — só copiar)
+      app/src/main/assets/faces/*.bin                     (mostradores validados)
+R2. Nunca escreva bytes de .bin "na mão". Todo .bin novo sai de FaceFile.build() e passa por
+    FaceValidator.check() antes de ser salvo ou enviado.
+R3. Todo .bin que o usuário cria/edita é salvo com FaceLibrary.save() (gera versão nova). Nunca
+    use File.writeBytes() num .bin da biblioteca.
+R4. Todo envio ao relógio passa por WatchService.ACTION_UPLOAD_LIBRARY (fase 2). Nenhuma tela
+    chama uploadFace() direto.
+R5. Estilo visual: use as cores de ui/Theme.kt e os componentes de ui/Components.kt (HudCard,
+    CyanButton, OutlineAction, HudTextField). Textos de tela exatamente como escritos aqui.
+R6. Não adicione dependências novas no Gradle.
+R7. Em caso de erro de compilação, corrija o código NOVO. Não "conserte" core/, studio/ nem PrintState.kt.
+R8. Após cada fase: `gradlew.bat testDebugUnitTest` verde, `gradlew.bat installDebug`, pedir ACEITE.
+
+------------------------------------------------------------------------------------------
+ 2. MATERIAL PRONTO QUE VEIO JUNTO (pasta RAIZ\studio_pack)
+------------------------------------------------------------------------------------------
+Escrito e validado fora do app (compilado com kotlinc 2.4, testado contra os mostradores reais):
+
+studio_pack\src\com\mynd\watch\studio\
+  FaceFile.kt        parser/compilador COMPLETO do .bin (imagens, textos, prévia, fundo, recursos).
+                     Reconstrói byte a byte os 4 mostradores oficiais e os MYND.
+                     Sprite.fromArgb() já corrige largura para múltiplo de 4.
+  Catalog.kt         tipos de texto e de imagem válidos (validados com sondas A/B/C/E) + nomes PT.
+  DataContract.kt    contrato de dados (current/pair/icon), ContractMapper, NOZZLE_LEVELS.
+  ContractWeather.kt monta o comando de clima a partir do contrato (= BambuWeatherMapper p/ BAMBU_V4).
+  FaceValidator.kt   verificador (ERRO bloqueia envio; AVISO só informa).
+  FaceRenderer.kt    simulador: fundo + imagens em ARGB; textos como lista TextDraw p/ a UI desenhar.
+  FaceComposer.kt    papel de parede + moldura (camadas) e regeneração da prévia 156x214.
+  FaceLibrary.kt     biblioteca com versões, aprovado/instalado, exportar/importar zip.
+studio_pack\test\
+  StudioTest.kt, sprite_vec.bin, sprite_argb.bin
+studio_pack\assets\
+  frames\hud_frame.png, frames\hud_bambu_frame.png   (molduras com transparência, 240x296)
+  fonts\oxanium-800.ttf, michroma-400.ttf, orbitron-700.ttf, russo-one.ttf, space-mono-400.ttf
+
+API resumida que você vai usar (não reimplemente):
+  FaceFile.parse(bytes) / face.build() / face.copy(images=, texts=, preview=, bg=)
+  face.images: List<ImageElem(type,x,y,sprites)>   face.texts: List<TextElem(type,x,y,width,r,g,b,align,..)>
+  Sprite.fromArgb(w, h, argbIntArray)  ·  sprite.argb()  ·  Rgb565.decode/encode
+  FaceValidator.check(face, contract) -> List<Issue(level, msg)>  ·  FaceValidator.hasErrors(list)
+  FaceRenderer.render(face, SimValues) -> RenderResult(pixels IntArray 240*296, texts List<TextDraw>)
+  FaceComposer.compose(wallArgb, frameArgbOuNull, WallpaperFx(darken, tint)) -> IntArray
+  FaceComposer.withBackground(face, bgArgb) · FaceComposer.refreshPreview(face)
+  FaceLibrary(root).save(name, bin, note, contract?) -> Ref(id, v) · list() · get(id) · bytes(ref)
+      markApproved(ref) · markInstalled(ref) · installed() · lastApproved() · setContract(id, c)
+      exportZip(out) · importZip(in)
+  ContractMapper.channels(contract, PrintValues) · ContractWeather.build(contract, printState) -> Frame?
+  DataContract.REAL_WEATHER · DataContract.BAMBU_V4 · DataContract.parse/serialize
+
+------------------------------------------------------------------------------------------
+ FASE 0 — Limpeza e segurança do repositório            (versão: sem mudança)
+------------------------------------------------------------------------------------------
+0.1  Existe uma cópia antiga duplicada em RAIZ\mynd-watch-app (projeto dentro do projeto).
+     Mova-a para fora (NÃO apague):
+       PowerShell (em RAIZ):
+       New-Item -ItemType Directory -Force "..\_arquivo_antigo" | Out-Null
+       Move-Item ".\mynd-watch-app" "..\_arquivo_antigo\mynd-watch-app_copia_antiga"
+0.2  Mova também RAIZ\MYND_HUD_BAMBU_mapa.md para docs\MYND_HUD_BAMBU_mapa_antigo.md
+     (está desatualizado: descreve o estado antes do patch v4).
+0.3  Guarde o documento antigo: RAIZ\INSTRUCOES.txt NÃO existe mais como v1 — já está em
+     docs\INSTRUCOES_v1.txt (feito pelo Claude). Não recrie.
+0.4  Git:
+       git init   (se ainda não for repositório)
+       Confirme que .gitignore contém: .gradle/  build/  local.properties  .idea/  *.iml  .kotlin/
+       git add -A ; git commit -m "chore: estado inicial antes do Studio (app 0.1.x, mostrador Bambu v4)"
+ACEITE 0: `git log` mostra o commit; a pasta duplicada não está mais dentro de RAIZ.
+
+------------------------------------------------------------------------------------------
+ FASE 1 — Integrar o núcleo Studio                        (versão 0.2.0 / versionCode 2)
+------------------------------------------------------------------------------------------
+1.1  Copiar (PowerShell, em RAIZ):
+       New-Item -ItemType Directory -Force app\src\main\java\com\mynd\watch\studio | Out-Null
+       Copy-Item studio_pack\src\com\mynd\watch\studio\*.kt app\src\main\java\com\mynd\watch\studio\
+       New-Item -ItemType Directory -Force app\src\test\java\com\mynd\watch\studio | Out-Null
+       Copy-Item studio_pack\test\StudioTest.kt app\src\test\java\com\mynd\watch\studio\
+       Copy-Item studio_pack\test\sprite_vec.bin, studio_pack\test\sprite_argb.bin app\src\test\resources\
+       New-Item -ItemType Directory -Force app\src\main\assets\studio | Out-Null
+       Copy-Item -Recurse studio_pack\assets\* app\src\main\assets\studio\
+1.2  Apague app/src/main/java/com/mynd/watch/face/WatchFace.kt (substituído por studio/FaceFile.kt).
+     Em ui/FaceEditorScreen.kt ele é usado: NÃO conserte essa tela — ela será substituída na fase 6.
+     Para compilar agora: troque, dentro de MainActivity.FacesTab(), a chamada FaceEditorScreen(...)
+     por um Text("Biblioteca na próxima versão") e mova ui/FaceEditorScreen.kt para
+     docs\legado\FaceEditorScreen.kt.txt (fora do build).
+1.3  app/build.gradle.kts: versionCode = 2 ; versionName = "0.2.0"
+1.4  gradlew.bat testDebugUnitTest  → ProtocolTest + StudioTest verdes (StudioTest tem 6 testes).
+1.5  Commit: "feat(studio): núcleo Studio (parser/compilador/validador/simulador/biblioteca) + assets"
+ACEITE 1: testes verdes; app instala e abre.
+
+------------------------------------------------------------------------------------------
+ FASE 2 — Biblioteca de mostradores com versões           (versão 0.2.1 / versionCode 3)
+------------------------------------------------------------------------------------------
+2.1  Criar app/src/main/java/com/mynd/watch/data/Library.kt:
+       object Library {
+           lateinit var lib: FaceLibrary; private set
+           fun init(ctx: Context) {
+               if (::lib.isInitialized) return
+               lib = FaceLibrary(File(ctx.filesDir, "library"))
+               // semente na 1ª execução: os mostradores validados dos assets, já APROVADOS
+               if (lib.list().isEmpty()) {
+                   val seeds = listOf(
+                       Triple("MYND HUD", "faces/MYND_HUD.bin", DataContract.REAL_WEATHER),
+                       Triple("MYND HUD Bambu", "faces/MYND_HUD_BAMBU.bin", DataContract.BAMBU_V4))
+                   for ((name, asset, c) in seeds) {
+                       val ref = lib.save(name, ctx.assets.open(asset).readBytes(), "original validado", c)
+                       lib.markApproved(ref)
+                   }
+               }
+           }
+       }
+     Chamar Library.init(this) em MainActivity.onCreate e em WatchService.onCreate (antes de tudo).
+
+2.2  WatchService: nova ação
+       const val ACTION_UPLOAD_LIBRARY = "com.mynd.watch.UPLOAD_LIBRARY"   // extras: "id" (String), "v" (Int)
+     Fluxo obrigatório em uploadLibrary(id, v):
+       a) bytes = Library.lib.bytes(Ref(id, v)); face = FaceFile.parse(bytes)
+       b) issues = FaceValidator.check(face, Library.lib.get(id)!!.contract, bytes.size)
+          se hasErrors → AppLog.add("envio bloqueado: " + primeiro erro) e updateStatus("Envio bloqueado"); PARAR.
+       c) uploadBytes(bytes, "$id v$v") (já existe). Em SUCESSO: Library.lib.markInstalled(Ref(id, v));
+          installedFlow.value = Ref(id, v); lastUploadResult.value = UploadResult.Ok(Ref(id, v)).
+          Em FALHA: lastUploadResult.value = UploadResult.Fail(mensagem).
+     Adicionar no companion:
+       val installedFlow = MutableStateFlow<FaceLibrary.Ref?>(null)
+       val lastUploadResult = MutableStateFlow<UploadResult?>(null)
+       sealed class UploadResult { data class Ok(val ref: FaceLibrary.Ref) : UploadResult(); data class Fail(val msg: String) : UploadResult() }
+     No onCreate: installedFlow.value = Library.lib.installed()
+     Remover da UI qualquer uso de ACTION_UPLOAD_FACE e ACTION_UPLOAD_URI (manter no serviço, sem uso).
+     Helper em MainActivity: fun sendToWatch(ref: FaceLibrary.Ref) = startService(Intent(this, WatchService::class.java)
+         .setAction(WatchService.ACTION_UPLOAD_LIBRARY).putExtra("id", ref.id).putExtra("v", ref.v))
+
+2.3  Nova tela ui/LibraryScreen.kt (substitui o conteúdo da aba "Mostradores"):
+     Topo: título "BIBLIOTECA" e 3 botões OutlineAction em linha:
+        "Importar .bin"  → OpenDocument(["*/*"]) → bytes → se FaceFile.parse falhar: Toast "Arquivo não é um mostrador JL";
+                           senão pedir nome (AlertDialog com HudTextField, padrão = nome do arquivo sem extensão)
+                           → Library.lib.save(nome, bytes, "importado") → recarregar lista.
+        "Backup"         → CreateDocument("application/zip"), nome sugerido "mynd_backup_AAAAMMDD.zip" → lib.exportZip.
+        "Restaurar"      → OpenDocument(["application/zip"]) → lib.importZip → Toast "Backup restaurado (nada foi apagado)".
+     Lista: um HudCard por Entry (lib.list()):
+        - miniatura: prévia da ÚLTIMA versão (FaceFile.parse(bytes).preview → Rgb565.decode(preview,156,214) → Bitmap) 52x71dp
+        - nome; linha "v{latest} · {n} versões"
+        - selos: "INSTALADO" (GreenOk) se installedFlow.value?.id == entry.id ; "APROVADO v{n}" (Cyan) se entry.approved != null
+        - toque no card → abre VersionsSheet(entry)
+     VersionsSheet (ModalBottomSheet): lista de versões (mais nova em cima): "v{n}  {dd/MM HH:mm}  {nota}" +
+        selos INSTALADO/APROVADO por versão. Ao tocar numa versão, mostrar ações:
+          "Pré-visualizar"   → abre PreviewScreen(ref) (fase 3)
+          "Editar no Estúdio"→ abre StudioScreen(ref) (fase 6; até lá mostrar Toast "Disponível na 0.2.5")
+          "Enviar ao relógio"→ sendToWatch(ref)   (fase 4 acrescenta o diálogo Manter/Desfazer)
+          "Marcar aprovado"  → lib.markApproved(ref)
+          "Exportar .bin"    → CreateDocument("application/octet-stream"), nome "{id}_v{n}.bin" → bytes
+          "Duplicar como novo mostrador" → pedir nome → lib.save(nomeNovo, bytes, "duplicado de {id} v{n}", entry.contract)
+     NUNCA oferecer "apagar" nesta versão.
+2.4  versionCode 3, versionName "0.2.1".
+2.5  Commit: "feat(biblioteca): versões, aprovado/instalado, backup zip, envio pela biblioteca"
+ACEITE 2: a biblioteca abre com "MYND HUD" e "MYND HUD Bambu" (APROVADO v1); enviar "MYND HUD Bambu v1"
+          instala e o selo INSTALADO aparece; Backup gera .zip; importar um .bin cria uma entrada nova.
+
+------------------------------------------------------------------------------------------
+ FASE 3 — Simulador fiel + verificador                    (versão 0.2.2 / versionCode 4)
+------------------------------------------------------------------------------------------
+3.1  Criar ui/FacePreview.kt com:
+       @Composable fun FacePreview(face: FaceFile, sim: SimValues, showBoxes: Boolean, modifier: Modifier)
+     Implementação exata:
+       - r = remember(face, sim) { FaceRenderer.render(face, sim) }
+       - bmp = Bitmap.createBitmap(r.pixels, 240, 296, Bitmap.Config.ARGB_8888).copy(ARGB_8888, true)
+       - Desenhar os textos em cima com android.graphics.Canvas(bmp):
+           Paint(ANTI_ALIAS_FLAG) com typeface = Typeface.create("sans-serif", Typeface.BOLD), textSize = 17f,
+           color = td.argb. Para cada td: canvas.save(); canvas.clipRect(td.x, td.y, td.x + td.width, td.y + 22);
+           x = when(td.align){2 -> td.x + (td.width - w)/2 ; 3 -> td.x + td.width - w ; else -> td.x} (w = paint.measureText),
+           y = td.y + 17f ; drawText ; canvas.restore().
+           (O recorte na largura reproduz o relógio: é assim que o "°" some no painel de %.)
+       - Se showBoxes: desenhar retângulo 1px (Cyan 60% alpha) em cada campo de texto (x,y,width,20) e
+         em cada imagem (x,y,sprite.w,sprite.h).
+       - Exibir com Image(bmp.asImageBitmap(), filterQuality = FilterQuality.None) mantendo proporção 240:296,
+         escala inteira máxima que caiba (2x ou 3x), com cantos arredondados 28dp e fundo preto.
+3.2  Criar ui/PreviewScreen.kt (abre a partir da biblioteca com uma Ref):
+       - FacePreview no topo.
+       - Chips: "Caixas" (showBoxes), "Ao vivo".
+       - Painel "SIMULAR" (quando "Ao vivo" desligado), sliders com valor ao lado:
+           Hora 0–23, Minuto 0–59, Segundo 0–59, Dia da semana (DOM..SÁB), Dia 1–31, Mês 1–12,
+           Passos 0–30000 (passo 10), BPM 40–200, Bateria 0–100.
+           Se o contrato da entrada usa Bambu: "Impressão %" 0–100, "Restante (min)" 0–2000, "Bico °C" 20–300,
+           e os canais de clima vêm de ContractMapper.channels(contrato, PrintValues(...)).
+           Se não usa Bambu: sliders "Clima atual" −10–45, "Mín" "Máx" −10–45, "Ícone" 0–15.
+       - "Ao vivo": hora/data do celular a cada segundo; bateria de WatchService.batteryFlow; canais de clima de
+         ContractMapper.channels(contrato, valores de WatchService.printFlow) — se não houver dados Bambu, usa os sliders.
+       - Painel "VERIFICAÇÃO": FaceValidator.check(face, contrato). Cada Issue numa linha:
+           ERRO em RedBad com ícone Error, AVISO em Orange com ícone Warning; se vazio: "✓ Nenhum problema" em GreenOk.
+       - Botão "Enviar ao relógio": desabilitado (e com texto "Corrija os erros para enviar") se hasErrors.
+3.3  versionCode 4, versionName "0.2.2". Commit: "feat(preview): simulador fiel com recorte de texto + verificador"
+ACEITE 3: "MYND HUD Bambu v1" no simulador com Impressão 34, Restante 844, Bico 220 mostra "220°" no BICO,
+          "34" (sem °) + "%" no painel IMPRESSÃO e "14/4" na barra — igual ao relógio. Verificação sem erros.
+
+------------------------------------------------------------------------------------------
+ FASE 4 — Envio seguro (Manter / Desfazer)               (versão 0.2.3 / versionCode 5)
+------------------------------------------------------------------------------------------
+4.1  Antes de enviar, guarde `anterior = Library.lib.installed() ?: Library.lib.lastApproved()`.
+4.2  Ao receber lastUploadResult = Ok(ref):
+       - se a versão enviada já é aprovada → só Toast "Mostrador instalado".
+       - senão → AlertDialog não cancelável ao tocar fora:
+           título "Ficou bom no relógio?"
+           texto "Confira o relógio. Se não gostou, o app reenvia a versão anterior."
+           botão "Manter"   → Library.lib.markApproved(ref); Toast "Aprovado ✓"
+           botão "Desfazer" → sendToWatch(anterior) (se anterior == null: sendToWatch(lastApproved()))
+       - Fail(msg) → AlertDialog "Envio falhou" + msg + botão "OK". Nada muda na biblioteca.
+4.3  Aba "Relógio": novo botão CyanButton "Restaurar último aprovado" → sendToWatch(Library.lib.lastApproved()!!)
+     com confirmação "Reenviar {nome} v{n} para o relógio?".
+4.4  Durante envio: bloquear novos envios (WatchService já serializa; na UI desabilite botões Enviar enquanto
+     statusFlow começar com "Enviando").
+4.5  versionCode 5, versionName "0.2.3". Commit: "feat(envio): confirmação manter/desfazer e restaurar aprovado"
+ACEITE 4: enviar uma versão NÃO aprovada → aparece o diálogo; "Desfazer" reinstala a anterior; "Restaurar último
+          aprovado" funciona.
+
+------------------------------------------------------------------------------------------
+ FASE 5 — Contrato de dados por mostrador                 (versão 0.2.4 / versionCode 6)
+------------------------------------------------------------------------------------------
+5.1  WatchService.bambuLoop(): troque a linha
+        runCatching { bleLock.withLock { watch.weather(BambuWeatherMapper.toWeather(print)) } }
+     por:
+        val inst = Library.lib.installed()
+        val contract = inst?.let { Library.lib.get(it.id)?.contract } ?: DataContract.REAL_WEATHER
+        val frame = ContractWeather.build(contract, print)
+        if (frame != null) runCatching { bleLock.withLock { watch.weather(frame) } } ...  (mantém onSuccess/onFailure)
+        else { /* mostrador instalado não usa Bambu: não mandar clima da Bambu */ }
+     As NOTIFICAÇÕES da Bambu (PrintEvents) continuam sempre, independente do contrato.
+     NÃO altere PrintState.kt nem BambuWeatherMapper (continua existindo; o teste garante igualdade).
+5.2  No VersionsSheet (fase 2) adicionar a ação "Dados do mostrador…" → diálogo com 3 dropdowns
+     (ExposedDropdownMenuBox), rótulos e opções EXATOS:
+       "Número (campos 13/24)":   CurrentSrc  — REAL_WEATHER="Clima real", BAMBU_PERCENT="Impressão %",
+                                   BAMBU_NOZZLE="Bico °C", BAMBU_BED="Mesa °C", BAMBU_LAYER="Camada atual"
+       "Par (campo 33)":           PairSrc     — REAL_WEATHER="Clima real (mín/máx)", BAMBU_REMAINING_HM="Tempo restante h/min",
+                                   BAMBU_PERCENT_REMAINING_MIN="% / minutos", BAMBU_NOZZLE_TARGET="Bico atual/alvo",
+                                   BAMBU_BED_TARGET="Mesa atual/alvo", BAMBU_LAYERS="Camada/total"
+       "Ícone (imagem 6)":         IconSrc     — REAL_WEATHER="Clima real", BAMBU_PROGRESS_16="Barra de progresso (16)",
+                                   BAMBU_NOZZLE_LEVEL="Bico (níveis desenhados)"
+     Salvar → Library.lib.setContract(id, DataContract(...)). Mostrar abaixo o resultado de
+     FaceValidator.check(face da última versão, novo contrato) (avisos de campo sem dado / dado sem campo).
+5.3  versionCode 6, versionName "0.2.4". Commit: "feat(contrato): clima montado pelo contrato do mostrador instalado"
+ACEITE 5: com "MYND HUD" (clima real) instalado, o app NÃO manda dados Bambu no clima; com "MYND HUD Bambu"
+          instalado, o relógio mostra bico/%/tempo como antes.
+
+------------------------------------------------------------------------------------------
+ FASE 6 — Estúdio (editor em camadas)                      (versão 0.2.5 / versionCode 7)
+------------------------------------------------------------------------------------------
+Criar ui/StudioScreen.kt. Entrada: uma Ref da biblioteca. Estado de trabalho: `var face: FaceFile` (cópia em memória).
+Layout: FacePreview no topo (sempre atualizado, caixas ligadas) + TabRow com 4 abas: "Fundo", "Campos", "Dígitos",
+"Verificar". Barra inferior fixa: OutlineAction "Descartar" (volta sem salvar, com confirmação se houve mudança) e
+CyanButton "Salvar versão" (pede nota curta → FaceComposer.refreshPreview(face) → Library.lib.save(entry.name,
+face.build(), nota, entry.contract) → Toast "Salvo como v{n}" → volta para a biblioteca).
+"Salvar versão" fica DESABILITADO se FaceValidator.hasErrors(check(face, contrato)).
+
+6.1  Aba "Fundo":
+     - Botão "Escolher imagem" → PickVisualMedia(ImageOnly). Carregar Bitmap, fazer center-crop para proporção
+       240:296 e createScaledBitmap(240, 296, true) → wall: IntArray (getPixels).
+     - Switch "Manter moldura MYND" (padrão LIGADO). Moldura: assets/studio/frames/hud_bambu_frame.png se o
+       contrato da entrada usa Bambu, senão hud_frame.png. Carregar PNG → IntArray 240x296 (ARGB).
+     - Slider "Escurecer" 0–90 (padrão 45) · Slider "Tom ciano" 0–100 (padrão 0).
+     - A cada mudança: bg = FaceComposer.compose(wall, if (moldura) frame else null, WallpaperFx(escurecer, tom));
+       face = FaceComposer.withBackground(face, bg).
+     - Botão "Voltar ao fundo original" → face = face.copy(bg = original.bg, preview = original.preview).
+     Nota fixa na tela: "As molduras só combinam com os mostradores MYND HUD (mesma posição dos painéis)."
+6.2  Aba "Campos" (campos de texto do firmware):
+     - Lista dos face.texts com nome de Catalog.TEXT_BY_ID[type]?.nome (ou "Tipo inválido {n}" em RedBad).
+     - Tocar num campo seleciona (destacado no preview). Controles do selecionado:
+         Tipo: dropdown SOMENTE com Catalog.TEXT_TYPES ("{id} · {nome} · ex.: {exemplo}")
+         X: botões −5 −1 +1 +5 e número; Y: idem; Largura: −5 −1 +1 +5 (limites 8..240)
+         Cor: paleta [#FFFFFF, #00C8FF, #00FF99, #FFFF00, #FF9900, #FF3355, #FF66FF, #D0E8FF] + campo hex "RRGGBB"
+         Alinhamento: 3 botões "Esq." (1) "Centro" (2) "Dir." (3)
+         Se tipo 19: campo "Texto fixo" (máx 19 caracteres ASCII; converter para bytes ASCII, completar com 0 até 20)
+         Botão "Remover campo" (confirmação)
+       Arrastar no preview também move o campo selecionado (converter dp→px da tela 240x296, arredondar).
+     - Botão "Adicionar campo": abre lista do Catalog.TEXT_TYPES; cria TextElem(type, x=90, y=140, width=60,
+       r=255,g=255,b=255, align=2). Se face.tableBytes + 32 > JL.TABLE_BYTES ou registros ≥ JL.MAX_RECORDS:
+       Toast "Sem espaço na tabela do mostrador" e não adiciona.
+6.3  Aba "Dígitos" (regenera as imagens da hora/minuto/dia/dia da semana):
+     - Fonte: dropdown com os arquivos de assets/studio/fonts (nomes: "Oxanium", "Michroma", "Orbitron",
+       "Russo One", "Space Mono"). Padrão: Oxanium.
+     - Cores: "Horas" (padrão #FFFFFF), "Minutos" (#00C8FF), "Dia" (#00C8FF), "Dia da semana" (#FFFFFF) — mesma paleta.
+     - Botão "Aplicar". Algoritmo EXATO, para cada ImageElem cujo type ∈ {1,2,3,4,10,11,31}:
+         w = sprite existente .w ; h = sprite existente .h  (NÃO mude o tamanho)
+         textos: tipos 1..4, 10, 11 → "0".."9" (use tantos quantos sprites o elemento tem; tipo 1 usa "0","1","2";
+                 tipo 3 usa "0".."5"; tipo 10 usa "0".."3" se tiver 4 sprites, senão "0".."9");
+                 tipo 31 → ["DOM","SEG","TER","QUA","QUI","SEX","SÁB"]
+         cor: tipos 1,2 → Horas ; 3,4 → Minutos ; 10,11 → Dia ; 31 → Dia da semana
+         tamanho da fonte: maior textSize tal que TODOS os textos do elemento cabem em (w-2) x (h-2)
+                 (Paint.getTextBounds), busca decrescente de 200 até 6.
+         desenhar: Bitmap(w, h, ARGB_8888) transparente; Paint(ANTI_ALIAS_FLAG), textAlign CENTER,
+                 x = w/2f, y = h/2f - (bounds.top + bounds.bottom)/2f ; drawText.
+         px = IntArray(w*h) via getPixels → Sprite.fromArgb(w, h, px)
+         novo elemento = elem.copy(sprites = lista nova)
+       Depois: face = FaceComposer.refreshPreview(face).
+     - Nota fixa: "O tamanho dos dígitos é o do mostrador original. Para mudar tamanho/posição, peça um novo .bin."
+6.4  Aba "Verificar": mesma lista de issues da PreviewScreen + tamanho do arquivo em KB.
+6.5  Remover definitivamente docs\legado\FaceEditorScreen.kt.txt da árvore? NÃO — mantenha como referência.
+6.6  versionCode 7, versionName "0.2.5". Commit: "feat(estudio): fundo em camadas, campos, dígitos e verificação"
+ACEITE 6: trocar o papel de parede do "MYND HUD Bambu" mantendo a moldura, mudar a cor dos minutos, salvar como v2,
+          enviar, "Desfazer" volta para a v1 aprovada.
+
+------------------------------------------------------------------------------------------
+ FASE 7 — Automação: mostrador Bambu automático           (versão 0.2.6 / versionCode 8)
+------------------------------------------------------------------------------------------
+7.1  Settings: novas chaves
+       AUTO_BAMBU (Boolean, padrão false) · FACE_DEFAULT (String "id") · FACE_BAMBU (String "id")
+     Aba "Bambu": Switch "Trocar mostrador automaticamente" + 2 dropdowns "Mostrador padrão" e
+     "Mostrador durante impressão" (listam lib.list(); só entradas com versão APROVADA).
+     Padrões na 1ª vez: FACE_DEFAULT="mynd_hud", FACE_BAMBU="mynd_hud_bambu".
+7.2  WatchService, dentro do loop da Bambu (a cada 1 s), se AUTO_BAMBU:
+       alvo = quando gcode_state ∈ {RUNNING, PREPARE, PAUSE} → FACE_BAMBU ; quando ∈ {FINISH, FAILED, IDLE}
+              há ≥ 10 min contínuos → FACE_DEFAULT ; senão → nenhum.
+       Se alvo != null e installed()?.id != alvo e não houve troca automática nos últimos 10 min e não há envio
+       em andamento: enviar lib.lastApproved do alvo — i.e. Ref(alvo, entry.approved!!.n) — via uploadLibrary.
+       Registrar em AppLog: "auto: trocando para {alvo} ({motivo})". Trocas automáticas NUNCA abrem o diálogo
+       Manter/Desfazer (a versão já é aprovada).
+7.3  versionCode 8, versionName "0.2.6". Commit: "feat(auto): troca de mostrador conforme estado da Bambu"
+ACEITE 7: iniciar impressão → em até ~1 min o relógio troca para o HUD Bambu; 10 min após terminar volta ao padrão.
+
+------------------------------------------------------------------------------------------
+ FASE 8 — Filtro de notificações                          (versão 0.2.7 / versionCode 9)
+------------------------------------------------------------------------------------------
+8.1  NotificationForwarder: ao receber uma notificação, adicionar o pacote a Settings "SEEN_APPS"
+     (StringSet, máx 60 mais recentes) e só repassar se o pacote NÃO estiver em "BLOCKED_APPS" (StringSet).
+8.2  Aba "Relógio" → seção "NOTIFICAÇÕES": lista de SEEN_APPS com nome do app (PackageManager.getApplicationLabel)
+     e Switch (ligado = repassa). Botão "Enviar notificação de teste" (já existe; manter).
+8.3  versionCode 9, versionName "0.2.7". Commit: "feat(notificacoes): filtro por app"
+ACEITE 8: desligar um app na lista e confirmar que ele para de chegar no relógio.
+
+------------------------------------------------------------------------------------------
+ 9. TESTES OBRIGATÓRIOS (rodar ao fim de TODA fase)
+------------------------------------------------------------------------------------------
+  gradlew.bat testDebugUnitTest
+    ProtocolTest (8 testes, protocolo real)   StudioTest (6 testes, núcleo Studio)
+  Checklist no aparelho: conecta · hora certa · notificação de teste · biblioteca abre · simulador ·
+  enviar versão aprovada · Manter/Desfazer · Bambu no mostrador Bambu.
+
+------------------------------------------------------------------------------------------
+ 10. SE ALGO DER ERRADO
+------------------------------------------------------------------------------------------
+  - Relógio responde "recusou (4)": CRC — o .bin foi alterado depois do build ou não veio do FaceFile.build().
+  - Cores trocadas/serrilhado nos dígitos: largura de sprite não múltipla de 4 → use Sprite.fromArgb (já corrige).
+  - Campo mostra "Text": tipo inexistente → o verificador deveria ter bloqueado; confira se o envio passou por R4.
+  - Mostrador certo mas números errados: contrato da entrada instalada (fase 5) diferente do que o mostrador exibe.
+  - Perdeu a biblioteca (reinstalou o app): "Restaurar" com o último backup .zip.
+  Se nada disso resolver: pare e peça ao usuário para levar o erro ao Claude (Cowork), com o log da aba Logs.
+
+------------------------------------------------------------------------------------------
+ 11. HISTÓRICO
+------------------------------------------------------------------------------------------
+  v1.0 (24/09/2026) app base: conexão, hora, notificações, Bambu, envio de mostrador.   (docs/INSTRUCOES_v1.txt)
+  Patches Bambu v2→v4 (25/09/2026): contrato atual = %, par = h/min, ícone = bico.     (PATCH_BAMBU_v4)
+  v2.0 (25/09/2026) este documento: Studio, biblioteca, simulador, envio seguro, contrato, automação, filtro.
