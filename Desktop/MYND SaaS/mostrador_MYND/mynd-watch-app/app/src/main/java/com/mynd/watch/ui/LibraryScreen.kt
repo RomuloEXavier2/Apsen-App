@@ -50,6 +50,8 @@ private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (F
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val installed by WatchService.installedFlow.collectAsState()
+    val statusSvc by WatchService.statusFlow.collectAsState()
+    val isSending  = statusSvc.startsWith("Enviando")
     var entries by remember { mutableStateOf(Library.lib.list()) }
     var selectedEntry by remember { mutableStateOf<FaceLibrary.Entry?>(null) }
     var showVersionsFor by remember { mutableStateOf<FaceLibrary.Entry?>(null) }
@@ -199,7 +201,9 @@ private fun LibraryContent(sendToWatch: (FaceLibrary.Ref) -> Unit, onPreview: (F
                         val ref = FaceLibrary.Ref(entry.id, ver.n)
                         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(onClick = { onPreview(ref); showVersionsFor = null }) { Text("Pré-visualizar", color = Cyan, fontSize = 12.sp) }
-                            TextButton(onClick = { sendToWatch(ref); showVersionsFor = null }) { Text("Enviar ao relógio", color = Cyan, fontSize = 12.sp) }
+                            TextButton(onClick = { sendToWatch(ref); showVersionsFor = null }, enabled = !isSending) {
+                                Text("Enviar ao relógio", color = if (isSending) TxtSec else Cyan, fontSize = 12.sp)
+                            }
                             TextButton(onClick = {
                                 Toast.makeText(ctx, "Disponível na 0.2.5", Toast.LENGTH_SHORT).show()
                             }) { Text("Editar no Estúdio", color = TxtSec, fontSize = 12.sp) }

@@ -142,6 +142,8 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
 
     val issues  = remember(originalFace, contract) { FaceValidator.check(originalFace, contract) }
     val hasErr  = FaceValidator.hasErrors(issues)
+    val statusSvc by WatchService.statusFlow.collectAsState()
+    val isSending  = statusSvc.startsWith("Enviando")
     val DOW_LABELS = listOf("Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb")
 
     Column(Modifier.fillMaxSize()) {
@@ -155,11 +157,25 @@ fun PreviewScreen(ref: FaceLibrary.Ref, sendToWatch: (FaceLibrary.Ref) -> Unit, 
                     Text("v${ref.v}", color = TxtSec, fontSize = 11.sp)
                 }
                 Button(
-                    onClick = { sendToWatch(ref); onBack() },
-                    enabled = !hasErr,
+                    onClick = {
+                        if (wallArgb != null) {
+                            scope.launch(Dispatchers.IO) {
+                                val bytes = runCatching { displayFace.build() }.getOrNull()
+                                if (bytes != null) {
+                                    val newRef = Library.lib.save(entry?.name ?: ref.id, bytes, "fundo personalizado", contract)
+                                    withContext(Dispatchers.Main) { sendToWatch(newRef); onBack() }
+                                }
+                            }
+                        } else {
+                            sendToWatch(ref); onBack()
+                        }
+                    },
+                    enabled = !hasErr && !isSending,
                     colors = ButtonDefaults.buttonColors(containerColor = CyanDark, contentColor = Cyan,
                         disabledContainerColor = CyanDark.copy(alpha = 0.3f), disabledContentColor = TxtSec)
-                ) { Text(if (hasErr) "Corrija os erros" else "Enviar ao relógio", fontSize = 12.sp) }
+                ) {
+                    Text(when { hasErr -> "Corrija os erros"; isSending -> "Enviando..."; else -> "Enviar ao relógio" }, fontSize = 12.sp)
+                }
             }
         }
 

@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings as AndroidSettings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -51,6 +52,7 @@ import com.mynd.watch.data.AppLog
 import com.mynd.watch.data.Library
 import com.mynd.watch.data.Settings
 import com.mynd.watch.service.PrintSnapshot
+import com.mynd.watch.service.UploadResult
 import com.mynd.watch.service.WatchService
 import com.mynd.watch.studio.FaceLibrary
 import kotlinx.coroutines.launch
@@ -90,9 +92,50 @@ class MainActivity : ComponentActivity() {
     // ── Shell ───────────────────────────────────────────────────────────
     @Composable
     private fun AppShell() {
-        val status    by WatchService.statusFlow.collectAsState()
-        val linkState by WatchService.linkStateFlow.collectAsState()
+        val status       by WatchService.statusFlow.collectAsState()
+        val linkState    by WatchService.linkStateFlow.collectAsState()
+        val uploadResult by WatchService.lastUploadResult.collectAsState()
+        val anteriorRef  by WatchService.anteriorFlow.collectAsState()
         var tab by remember { mutableIntStateOf(0) }
+        val ctx = this@MainActivity
+
+        // FASE 4: diálogos pós-envio (não canceláveis por toque externo)
+        uploadResult?.let { result ->
+            when (result) {
+                is UploadResult.Ok -> AlertDialog(
+                    onDismissRequest = {},
+                    containerColor = BgCard,
+                    title = { Text("Ficou bom no relógio?", color = TxtPri) },
+                    text  = { Text("Confirme para marcar o mostrador como aprovado.", color = TxtSec, fontSize = 13.sp) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            Library.lib.markApproved(result.ref)
+                            Toast.makeText(ctx, "Mostrador aprovado!", Toast.LENGTH_SHORT).show()
+                            WatchService.lastUploadResult.value = null
+                        }) { Text("Manter", color = GreenOk) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            val ant = anteriorRef
+                            WatchService.lastUploadResult.value = null
+                            if (ant != null) sendToWatch(ant)
+                            else Toast.makeText(ctx, "Nenhum mostrador anterior", Toast.LENGTH_SHORT).show()
+                        }) { Text("Desfazer", color = TxtSec) }
+                    }
+                )
+                is UploadResult.Fail -> AlertDialog(
+                    onDismissRequest = {},
+                    containerColor = BgCard,
+                    title = { Text("Envio falhou", color = RedBad) },
+                    text  = { Text(result.msg, color = TxtSec, fontSize = 13.sp) },
+                    confirmButton = {
+                        TextButton(onClick = { WatchService.lastUploadResult.value = null }) {
+                            Text("OK", color = Cyan)
+                        }
+                    }
+                )
+            }
+        }
 
         Scaffold(
             containerColor = BgDeep,
@@ -224,6 +267,11 @@ class MainActivity : ComponentActivity() {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     CyanButton(Icons.Default.Refresh, "Iniciar / Reconectar") { WatchService.start(ctx) }
+                    OutlineAction(Icons.Default.Restore, "Restaurar último aprovado") {
+                        val approved = Library.lib.lastApproved()
+                        if (approved != null) sendToWatch(approved)
+                        else Toast.makeText(ctx, "Nenhum mostrador aprovado ainda", Toast.LENGTH_SHORT).show()
+                    }
                     OutlineAction(Icons.Default.Notifications, "Enviar notificação de teste") {
                         WatchService.enqueueNotification("MYND", "Teste do app MYND Watch")
                     }

@@ -34,6 +34,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+sealed class UploadResult {
+    data class Ok(val ref: FaceLibrary.Ref) : UploadResult()
+    data class Fail(val msg: String) : UploadResult()
+}
+
 data class PrintSnapshot(
     val gcodeState: String?,
     val statePt: String,
@@ -66,11 +71,7 @@ class WatchService : Service() {
         val batteryFlow      = MutableStateFlow<Int?>(null)
         val installedFlow    = MutableStateFlow<FaceLibrary.Ref?>(null)
         val lastUploadResult = MutableStateFlow<UploadResult?>(null)
-
-        sealed class UploadResult {
-            data class Ok(val ref: FaceLibrary.Ref) : UploadResult()
-            data class Fail(val msg: String) : UploadResult()
-        }
+        val anteriorFlow     = MutableStateFlow<FaceLibrary.Ref?>(null)
 
         fun start(ctx: Context) {
             instance?.let { ctx.stopService(Intent(ctx, WatchService::class.java)) }
@@ -237,6 +238,7 @@ class WatchService : Service() {
             lastUploadResult.value = UploadResult.Fail(msg)
             return
         }
+        anteriorFlow.value = Library.lib.installed() ?: Library.lib.lastApproved()
         uploadBytes(bytes, "$id v$v")
         // uploadBytes sets status; result is communicated via lastUploadResult below
     }
