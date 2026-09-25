@@ -2,7 +2,6 @@ package com.mynd.watch.ui
 
 import android.Manifest
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -45,7 +44,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.mynd.watch.bambu.BambuCloud
 import com.mynd.watch.ble.LinkState
@@ -54,7 +52,6 @@ import com.mynd.watch.data.Settings
 import com.mynd.watch.service.PrintSnapshot
 import com.mynd.watch.service.WatchService
 import kotlinx.coroutines.launch
-import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -259,32 +256,9 @@ class MainActivity : ComponentActivity() {
     // ── Faces tab ───────────────────────────────────────────────────────
     @Composable
     private fun FacesTab() {
-        val ctx = this@MainActivity
-        val assetNames = remember { assets.list("faces")?.toList().orEmpty() }
-        FaceEditorScreen(
-            ctx = ctx,
-            assetNames = assetNames,
-            loadAsset = { name -> assets.open("faces/$name").readBytes() },
-            loadUri   = { uri ->
-                runCatching {
-                    contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                }.getOrNull()
-            },
-            loadBitmap = { uri ->
-                runCatching {
-                    contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                }.getOrNull()
-            },
-            onSend = { bytes ->
-                val tmp = File(cacheDir, "face_edit.bin").also { it.writeBytes(bytes) }
-                val uri = FileProvider.getUriForFile(ctx, "$packageName.provider", tmp)
-                startService(
-                    Intent(ctx, WatchService::class.java)
-                        .setAction(WatchService.ACTION_UPLOAD_URI)
-                        .putExtra("uri", uri.toString())
-                )
-            }
-        )
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Biblioteca na próxima versão", color = TxtSec, fontSize = 14.sp)
+        }
     }
 
     // ── Bambu tab ───────────────────────────────────────────────────────
