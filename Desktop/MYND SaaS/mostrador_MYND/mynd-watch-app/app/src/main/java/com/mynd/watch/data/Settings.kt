@@ -19,6 +19,9 @@ class Settings(private val ctx: Context) {
         val BAMBU_SERIAL = stringPreferencesKey("bambu_serial")
         val BAMBU_ENABLED = booleanPreferencesKey("bambu_enabled")
         val FORWARD_NOTIFS = booleanPreferencesKey("forward_notifs")
+        val AUTO_BAMBU   = booleanPreferencesKey("auto_bambu")
+        val FACE_DEFAULT = stringPreferencesKey("face_default")
+        val FACE_BAMBU   = stringPreferencesKey("face_bambu")
     }
 
     suspend fun get(k: androidx.datastore.preferences.core.Preferences.Key<String>): String? =

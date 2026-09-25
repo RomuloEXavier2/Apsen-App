@@ -93,6 +93,8 @@ class WatchService : Service() {
     @Volatile private var printDirty = false
     private var lastTimeSync = 0L
     private val pendingNotifs = ArrayDeque<Pair<String, String>>()
+    @Volatile private var lastAutoMs    = 0L
+    @Volatile private var finishStartMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -221,6 +223,41 @@ class WatchService : Service() {
                     runCatching { bleLock.withLock { watch.weather(frame) } }
                         .onSuccess { AppLog.add("Bambu → relógio: ${print.statePt} ${print.percent}% faltam ${PrintState.fmtRemaining(print.remainingMin)}") }
                         .onFailure { AppLog.add("clima falhou: ${it.message}") }
+            }
+            // FASE 7: troca automática de mostrador conforme estado da impressora
+            if (settings.getBool(Settings.AUTO_BAMBU) && link.state.value == LinkState.READY) {
+                val gcode = print.gcodeState
+                val now   = System.currentTimeMillis()
+                when {
+                    gcode in setOf("RUNNING", "PREPARE", "PAUSE") -> {
+                        finishStartMs = 0L
+                        val faceId = settings.get(Settings.FACE_BAMBU) ?: ""
+                        if (faceId.isNotEmpty() && Library.lib.installed()?.id != faceId
+                                && now - lastAutoMs >= 10 * 60_000L) {
+                            val approved = Library.lib.get(faceId)?.approved
+                            if (approved != null) {
+                                lastAutoMs = now
+                                AppLog.add("Auto: trocando para mostrador Bambu ($faceId v${approved.n})")
+                                scope.launch { uploadLibrary(faceId, approved.n) }
+                            }
+                        }
+                    }
+                    gcode in setOf("FINISH", "FAILED", "IDLE") -> {
+                        if (finishStartMs == 0L) finishStartMs = now
+                        if (now - finishStartMs >= 10 * 60_000L) {
+                            val faceId = settings.get(Settings.FACE_DEFAULT) ?: ""
+                            if (faceId.isNotEmpty() && Library.lib.installed()?.id != faceId
+                                    && now - lastAutoMs >= 10 * 60_000L) {
+                                val approved = Library.lib.get(faceId)?.approved
+                                if (approved != null) {
+                                    lastAutoMs = now
+                                    AppLog.add("Auto: restaurando mostrador padrão ($faceId v${approved.n})")
+                                    scope.launch { uploadLibrary(faceId, approved.n) }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if (System.currentTimeMillis() / 1000 % 300 == 0L) cloud.pushall(serial)
         }

@@ -99,30 +99,42 @@ class MainActivity : ComponentActivity() {
         var tab by remember { mutableIntStateOf(0) }
         val ctx = this@MainActivity
 
-        // FASE 4: diálogos pós-envio (não canceláveis por toque externo)
+        // Diálogos pós-envio (não canceláveis por toque externo)
         uploadResult?.let { result ->
             when (result) {
-                is UploadResult.Ok -> AlertDialog(
-                    onDismissRequest = {},
-                    containerColor = BgCard,
-                    title = { Text("Ficou bom no relógio?", color = TxtPri) },
-                    text  = { Text("Confirme para marcar o mostrador como aprovado.", color = TxtSec, fontSize = 13.sp) },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            Library.lib.markApproved(result.ref)
-                            Toast.makeText(ctx, "Mostrador aprovado!", Toast.LENGTH_SHORT).show()
+                is UploadResult.Ok -> {
+                    // Versão já aprovada (ex.: auto-switch) → apenas Toast, sem diálogo
+                    val isApproved = Library.lib.get(result.ref.id)
+                        ?.versions?.find { it.n == result.ref.v }?.approved == true
+                    if (isApproved) {
+                        LaunchedEffect(result.ref) {
+                            Toast.makeText(ctx, "Mostrador instalado!", Toast.LENGTH_SHORT).show()
                             WatchService.lastUploadResult.value = null
-                        }) { Text("Manter", color = GreenOk) }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = {
-                            val ant = anteriorRef
-                            WatchService.lastUploadResult.value = null
-                            if (ant != null) sendToWatch(ant)
-                            else Toast.makeText(ctx, "Nenhum mostrador anterior", Toast.LENGTH_SHORT).show()
-                        }) { Text("Desfazer", color = TxtSec) }
+                        }
+                    } else {
+                        AlertDialog(
+                            onDismissRequest = {},
+                            containerColor = BgCard,
+                            title = { Text("Ficou bom no relógio?", color = TxtPri) },
+                            text  = { Text("Confirme para marcar o mostrador como aprovado.", color = TxtSec, fontSize = 13.sp) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    Library.lib.markApproved(result.ref)
+                                    Toast.makeText(ctx, "Mostrador aprovado!", Toast.LENGTH_SHORT).show()
+                                    WatchService.lastUploadResult.value = null
+                                }) { Text("Manter", color = GreenOk) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    val ant = anteriorRef
+                                    WatchService.lastUploadResult.value = null
+                                    if (ant != null) sendToWatch(ant)
+                                    else Toast.makeText(ctx, "Nenhum mostrador anterior", Toast.LENGTH_SHORT).show()
+                                }) { Text("Desfazer", color = TxtSec) }
+                            }
+                        )
                     }
-                )
+                }
                 is UploadResult.Fail -> AlertDialog(
                     onDismissRequest = {},
                     containerColor = BgCard,
@@ -321,17 +333,25 @@ class MainActivity : ComponentActivity() {
     private fun BambuTab() {
         val printSnap by WatchService.printFlow.collectAsState()
         val s = remember { Settings(this) }
-        var email    by remember { mutableStateOf("") }
-        var pass     by remember { mutableStateOf("") }
-        var code     by remember { mutableStateOf("") }
-        var serial   by remember { mutableStateOf("") }
-        var msg      by remember { mutableStateOf("") }
-        var needCode by remember { mutableStateOf(false) }
-        var showForm by remember { mutableStateOf(printSnap == null) }
+        var email      by remember { mutableStateOf("") }
+        var pass       by remember { mutableStateOf("") }
+        var code       by remember { mutableStateOf("") }
+        var serial     by remember { mutableStateOf("") }
+        var msg        by remember { mutableStateOf("") }
+        var needCode   by remember { mutableStateOf(false) }
+        var showForm   by remember { mutableStateOf(printSnap == null) }
         val cloud = remember { BambuCloud() }
+        // FASE 7: auto-switch
+        var autoSwitch  by remember { mutableStateOf(false) }
+        var faceDefault by remember { mutableStateOf("") }
+        var faceBambu   by remember { mutableStateOf("") }
+        val approvedEntries = remember { Library.lib.list().filter { it.approved != null } }
 
         LaunchedEffect(Unit) {
-            serial = s.get(Settings.BAMBU_SERIAL) ?: ""
+            serial      = s.get(Settings.BAMBU_SERIAL) ?: ""
+            autoSwitch  = s.getBool(Settings.AUTO_BAMBU)
+            faceDefault = s.get(Settings.FACE_DEFAULT) ?: ""
+            faceBambu   = s.get(Settings.FACE_BAMBU) ?: ""
         }
 
         suspend fun finish(token: String) {
@@ -345,6 +365,55 @@ class MainActivity : ComponentActivity() {
             // Painel ao vivo
             if (printSnap != null) {
                 item { PrintStatusCard(printSnap!!) }
+            }
+            // FASE 7: auto-switch de mostrador
+            item {
+                HudCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Autorenew, null, tint = Cyan, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("AUTO-MOSTRADOR", color = TxtSec, fontSize = 10.sp, letterSpacing = 2.sp)
+                            }
+                            Switch(
+                                checked = autoSwitch,
+                                onCheckedChange = { v ->
+                                    autoSwitch = v
+                                    lifecycleScope.launch { s.setBool(Settings.AUTO_BAMBU, v) }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Cyan,
+                                    checkedTrackColor = CyanDark
+                                )
+                            )
+                        }
+                        AnimatedVisibility(autoSwitch) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (approvedEntries.isEmpty()) {
+                                    Text(
+                                        "Nenhum mostrador aprovado ainda. Envie e aprove um na aba Mostradores.",
+                                        color = TxtSec, fontSize = 12.sp, lineHeight = 16.sp
+                                    )
+                                } else {
+                                    val opts = listOf("" to "— não trocar —") + approvedEntries.map { it.id to it.name }
+                                    HudDropdown("Mostrador padrão", faceDefault, opts) { v ->
+                                        faceDefault = v
+                                        lifecycleScope.launch { s.set(Settings.FACE_DEFAULT, v.ifEmpty { null }) }
+                                    }
+                                    HudDropdown("Mostrador durante impressão", faceBambu, opts) { v ->
+                                        faceBambu = v
+                                        lifecycleScope.launch { s.set(Settings.FACE_BAMBU, v.ifEmpty { null }) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             // Formulário de conta
             item {
