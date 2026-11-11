@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.mynd.watch.data.AppLog
 import com.mynd.watch.data.NotifFilter
 
 /**
@@ -19,6 +20,7 @@ class NotificationForwarder : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        AppLog.add("Leitor de notificações ativo")
         NotifFilter.init(this)
     }
 
@@ -35,8 +37,19 @@ class NotificationForwarder : NotificationListenerService() {
         if ((recent[key] ?: 0) > now - 10_000) return
         recent[key] = now; if (recent.size > 50) recent.remove(recent.keys.first())
         NotifFilter.addSeen(sbn.packageName)
+        // Relogio do carro (ESP32): so WhatsApp e Instagram, independente do filtro do Haylou
+        carApp(sbn.packageName)?.let { app ->
+            AppLog.add("Carro ← ${if (app == 'W') "WhatsApp" else "Instagram"}: ${title.take(24)}")
+            WatchService.carNotify(app, title.ifBlank { appLabel(sbn.packageName) }, text)
+        }
         if (NotifFilter.isBlocked(sbn.packageName)) return
         WatchService.enqueueNotification(title.ifBlank { appLabel(sbn.packageName) }, text)
+    }
+
+    private fun carApp(pkg: String): Char? = when (pkg) {
+        "com.whatsapp", "com.whatsapp.w4b" -> 'W'
+        "com.instagram.android" -> 'I'
+        else -> null
     }
 
     private fun appLabel(pkg: String) = runCatching {

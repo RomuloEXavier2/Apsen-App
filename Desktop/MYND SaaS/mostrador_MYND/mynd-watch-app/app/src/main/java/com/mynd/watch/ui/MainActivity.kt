@@ -56,12 +56,29 @@ import com.mynd.watch.service.PrintSnapshot
 import com.mynd.watch.service.UploadResult
 import com.mynd.watch.service.WatchService
 import com.mynd.watch.studio.FaceLibrary
+import com.mynd.watch.weather.WeatherClient
+import com.mynd.watch.service.NotificationForwarder
+import android.content.ComponentName
+import android.service.notification.NotificationListenerService
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val perms = ActivityResultContracts.RequestMultiplePermissions()
-    private val askPerms = registerForActivityResult(perms) { WatchService.start(this) }
+    private val askPerms = registerForActivityResult(perms) {
+        WatchService.start(this)
+        saveLocation()
+    }
+
+    /** Guarda a posicao aproximada para o clima do relogio do carro (o servico usa a ultima salva). */
+    private fun saveLocation() {
+        val here = WeatherClient.lastKnown(this) ?: return
+        lifecycleScope.launch {
+            val s = Settings(this@MainActivity)
+            s.set(Settings.WEATHER_LAT, here.first.toString())
+            s.set(Settings.WEATHER_LON, here.second.toString())
+        }
+    }
 
     fun sendToWatch(ref: FaceLibrary.Ref) = startService(
         Intent(this, WatchService::class.java)
@@ -73,12 +90,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Library.init(this)
         NotifFilter.init(this)
+        // Depois de reinstalar o app o Android as vezes nao religa o leitor de notificacoes: pede de novo
+        runCatching {
+            NotificationListenerService.requestRebind(ComponentName(this, NotificationForwarder::class.java))
+        }
         val needed = buildList {
             if (Build.VERSION.SDK_INT >= 31) {
                 add(Manifest.permission.BLUETOOTH_SCAN)
                 add(Manifest.permission.BLUETOOTH_CONNECT)
             } else add(Manifest.permission.ACCESS_FINE_LOCATION)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)   // clima do relogio do carro
         }
         askPerms.launch(needed.toTypedArray())
         setContent {
@@ -296,6 +318,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            // Relogio do carro (ESP32 MYND-Clock)
+            item { CarClockCard() }
             // FASE 8: filtro de notificações por app
             item {
                 HudCard {
@@ -567,6 +591,34 @@ class MainActivity : ComponentActivity() {
                     Text("${current}°", color = TxtPri, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     if (target > 0)
                         Text(" / ${target}°", color = TxtSec, fontSize = 12.sp, modifier = Modifier.padding(bottom = 3.dp))
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun CarClockCard() {
+        val ctx = this@MainActivity
+        val link by WatchService.carLinkFlow.collectAsState()
+        val last by WatchService.clockFlow.collectAsState()
+        val temp by WatchService.carTempFlow.collectAsState()
+        HudCard(borderColor = if (link) GreenOk.copy(alpha = 0.6f) else CyanDark) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.DirectionsCar, null, tint = Cyan, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("RELÓGIO DO CARRO", color = TxtSec, fontSize = 10.sp, letterSpacing = 2.sp)
+                    Spacer(Modifier.weight(1f))
+                    if (temp != null) Text("${temp}°C", color = TxtSec, fontSize = 11.sp)
+                }
+                Text(if (link) "● Conectado ao MYND-Clock" else "○ Procurando o MYND-Clock...",
+                    color = if (link) GreenOk else Orange, fontSize = 12.sp)
+                Text(last, color = TxtSec, fontSize = 11.sp, lineHeight = 15.sp)
+                OutlineAction(Icons.Default.Notifications, "Testar notificação no carro") {
+                    ctx.startService(Intent(ctx, WatchService::class.java).setAction(WatchService.ACTION_TEST_CAR))
+                }
+                OutlineAction(Icons.Default.Sync, "Sincronizar relógio do carro") {
+                    ctx.startService(Intent(ctx, WatchService::class.java).setAction(WatchService.ACTION_SYNC_CLOCK))
                 }
             }
         }

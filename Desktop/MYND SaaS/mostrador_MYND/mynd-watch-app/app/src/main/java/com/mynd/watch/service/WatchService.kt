@@ -15,6 +15,7 @@ import com.mynd.watch.bambu.BambuCloud
 import com.mynd.watch.bambu.BambuWeatherMapper
 import com.mynd.watch.bambu.PrintEvents
 import com.mynd.watch.bambu.PrintState
+import com.mynd.watch.ble.ClockSync
 import com.mynd.watch.ble.LinkState
 import com.mynd.watch.ble.WatchLink
 import com.mynd.watch.data.AppLog
@@ -26,6 +27,8 @@ import com.mynd.watch.studio.FaceFile
 import com.mynd.watch.studio.FaceLibrary
 import com.mynd.watch.studio.FaceValidator
 import com.mynd.watch.watch.WatchClient
+import com.mynd.watch.weather.WeatherClient
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,6 +65,7 @@ class WatchService : Service() {
         const val ACTION_UPLOAD_FACE    = "com.mynd.watch.UPLOAD_FACE"
         const val ACTION_UPLOAD_URI     = "com.mynd.watch.UPLOAD_URI"
         const val ACTION_UPLOAD_LIBRARY = "com.mynd.watch.UPLOAD_LIBRARY"
+        const val ACTION_SYNC_CLOCK     = "com.mynd.watch.SYNC_CLOCK"
 
         private val notifQueue = Channel<Pair<String, String>>(Channel.BUFFERED)
         fun enqueueNotification(title: String, text: String) { notifQueue.trySend(title to text) }
@@ -74,6 +78,18 @@ class WatchService : Service() {
         val installedFlow    = MutableStateFlow<FaceLibrary.Ref?>(null)
         val lastUploadResult = MutableStateFlow<UploadResult?>(null)
         val anteriorFlow     = MutableStateFlow<FaceLibrary.Ref?>(null)
+        /** Ultimo evento do relogio do carro (ESP32 MYND-Clock), para exibir na UI. */
+        val clockFlow        = MutableStateFlow("aguardando")
+        /** Ultima temperatura externa enviada ao relogio do carro. */
+        val carTempFlow      = MutableStateFlow<Int?>(null)
+        /** true enquanto o relogio do carro (ESP32) estiver conectado. */
+        val carLinkFlow      = MutableStateFlow(false)
+        const val ACTION_TEST_CAR = "com.mynd.watch.TEST_CAR"
+
+        /** Notificacao (WhatsApp/Instagram) para o buddy do relogio do carro. */
+        fun carNotify(app: Char, title: String, text: String) {
+            instance?.clockSync?.notify(app, title, text)
+        }
 
         fun start(ctx: Context) {
             instance?.let { ctx.stopService(Intent(ctx, WatchService::class.java)) }
@@ -95,6 +111,7 @@ class WatchService : Service() {
     private val pendingNotifs = ArrayDeque<Pair<String, String>>()
     @Volatile private var lastAutoMs    = 0L
     @Volatile private var finishStartMs = 0L
+    private var clockSync: ClockSync? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -112,6 +129,16 @@ class WatchService : Service() {
         scope.launch { connectionLoop() }
         scope.launch { notificationLoop() }
         scope.launch { bambuLoop() }
+        scope.launch { weatherLoop() }
+
+        // Relógio do carro (ESP32): envia a hora do celular sempre que o Bluetooth estiver ligado.
+        // Protegido com runCatching para nunca derrubar o resto do serviço.
+        runCatching {
+            clockSync = ClockSync(this, onLink = { carLinkFlow.value = it }) { msg ->
+                AppLog.add("Relógio MYND: $msg")
+                clockFlow.value = msg
+            }.also { it.start() }
+        }.onFailure { AppLog.add("ClockSync falhou ao iniciar: ${it.message}") }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -129,11 +156,17 @@ class WatchService : Service() {
                 val v  = intent.getIntExtra("v", -1).takeIf { it >= 0 } ?: return START_STICKY
                 scope.launch { uploadLibrary(id, v) }
             }
+            ACTION_SYNC_CLOCK -> clockSync?.syncNow()
+            ACTION_TEST_CAR -> clockSync?.notify('W', "MYND", "Teste do buddy: se apareceu, as notificacoes estao chegando!")
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        runCatching { clockSync?.stop() }
+        carLinkFlow.value = false
+        clockSync = null
+        clockFlow.value = "parado"
         instance = null
         statusFlow.value = "parado"
         linkStateFlow.value = LinkState.DISCONNECTED
@@ -205,6 +238,7 @@ class WatchService : Service() {
             onReport = { js ->
                 if (print.merge(js)) {
                     printDirty = true
+                    pushPrintToCar()
                     printFlow.value = print.toSnapshot()
                 }
             },
@@ -260,6 +294,40 @@ class WatchService : Service() {
                 }
             }
             if (System.currentTimeMillis() / 1000 % 300 == 0L) cloud.pushall(serial)
+        }
+    }
+
+    /** Estado da Bambu para o relogio do carro: "P:<pct>,<estado>". */
+    private fun pushPrintToCar() {
+        val st = when (print.gcodeState) {
+            "RUNNING", "PREPARE", "SLICING" -> 'R'
+            "PAUSE" -> 'P'
+            "FINISH" -> 'F'
+            "FAILED" -> 'X'
+            else -> 'I'
+        }
+        clockSync?.setPrint(if (st == 'I') -1 else print.percent.coerceIn(0, 100), st)
+    }
+
+    // ── Clima (relogio do carro) ─────────────────────────────────────────
+    private suspend fun weatherLoop() {
+        delay(3_000)                              // espera o ClockSync subir
+        while (true) {
+            val ok = runCatching {
+                val here = WeatherClient.lastKnown(this)
+                if (here != null) {
+                    settings.set(Settings.WEATHER_LAT, here.first.toString())
+                    settings.set(Settings.WEATHER_LON, here.second.toString())
+                }
+                val lat = here?.first ?: settings.get(Settings.WEATHER_LAT)?.toDoubleOrNull() ?: WeatherClient.DEFAULT_LAT
+                val lon = here?.second ?: settings.get(Settings.WEATHER_LON)?.toDoubleOrNull() ?: WeatherClient.DEFAULT_LON
+                val t = WeatherClient.currentTemp(lat, lon) ?: error("resposta vazia")
+                val c = t.roundToInt()
+                if (carTempFlow.value != c) AppLog.add("Clima: $c°C → relógio do carro")
+                carTempFlow.value = c
+                clockSync?.setTemp(c)
+            }.onFailure { AppLog.add("Clima falhou: ${it.message}") }.isSuccess
+            delay(if (ok) 15 * 60_000L else 2 * 60_000L)
         }
     }
 

@@ -1,0 +1,18 @@
+BAMBU LAB -> RELÓGIO (MYND)
+===========================
+1) pip install bleak paho-mqtt
+2) Instale o mostrador:   python haylou_s6.py face MYND_HUD_BAMBU.bin
+3) Rode o gateway:        python bambu_watch.py
+   Na 1a vez ele pergunta IP, serial e código de acesso da impressora e salva em bambu_config.json.
+
+Requisitos
+ - PC na MESMA rede da impressora.
+ - Bluetooth do celular desligado enquanto o gateway roda (o relógio aceita 1 conexão).
+ - Onde achar: tela da impressora > Configurações > WLAN/Rede (IP e Access Code);
+   serial em Configurações > Dispositivo (ou no Bambu Studio/Handy).
+
+O que aparece no relógio
+ - Mostrador: barra de progresso (16 passos), "progresso/minutos restantes", temperatura do bico.
+ - Tela Clima do relógio: nome da "cidade" = "Bambu 67% Imprimindo";
+   dia 1 = % / minutos, dia 2 = bico atual/alvo, dia 3 = mesa atual/alvo, dia 4 = camada/total.
+ - Notificações: início, 25/50/75/90 %, pausa, falha, fim.

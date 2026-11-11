@@ -22,6 +22,9 @@ class Settings(private val ctx: Context) {
         val AUTO_BAMBU   = booleanPreferencesKey("auto_bambu")
         val FACE_DEFAULT = stringPreferencesKey("face_default")
         val FACE_BAMBU   = stringPreferencesKey("face_bambu")
+        /** Ultima posicao conhecida para o clima do relogio do carro. */
+        val WEATHER_LAT  = stringPreferencesKey("weather_lat")
+        val WEATHER_LON  = stringPreferencesKey("weather_lon")
     }
 
     suspend fun get(k: androidx.datastore.preferences.core.Preferences.Key<String>): String? =

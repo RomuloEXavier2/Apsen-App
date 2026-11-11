@@ -1,0 +1,26 @@
+MOSTRADOR MYND - HAYLOU WATCH S6
+================================
+
+Arquivos
+  MYND_completo.bin          hora (minutos em ciano) + dia da semana/dia + clima + bateria  (523 KB)
+  MYND_leve.bin              hora + dia da semana/dia, mesma estrutura e tamanho do modelo original (369 KB)
+  teste_original_planeta.bin mostrador oficial capturado do seu log (serve só para testar o envio)
+  haylou_s6.py               ferramenta de envio pelo Bluetooth do PC
+  gerador/                   scripts usados para gerar os .bin (referência; peça ajustes que eu regenero)
+
+Preparação (uma vez)
+  1. Instale o Python 3.9+ e rode:  pip install bleak
+  2. DESLIGUE o Bluetooth do celular (o relógio só aceita uma conexão por vez).
+  3. Deixe o relógio perto do PC, com a tela acesa.
+
+Ordem de teste (pare no primeiro que falhar e me mande a saída do terminal)
+  python haylou_s6.py info
+  python haylou_s6.py notify "MYND" "Teste do PC"
+  python haylou_s6.py face teste_original_planeta.bin
+  python haylou_s6.py face MYND_leve.bin
+  python haylou_s6.py face MYND_completo.bin
+
+Se travar no meio do envio, repita com --lento no final.
+Se o relógio não aparecer, rode  python haylou_s6.py scan  e use --addr XX:XX:XX:XX:XX:XX.
+
+Depois de instalar, escolha o mostrador no relógio (segure a tela inicial) ou pelo app.

@@ -1,0 +1,25 @@
+PATCH BAMBU v4 — seguir À RISCA, sem improvisar (substitui v2/v3)
+==================================================================
+Só existem 3 canais de dados nossos no mostrador (via comando de clima 0x14):
+  "atual" (campo 2)  -> textos 13/24
+  dia0 mín/máx       -> texto 33
+  dia0 ícone (0..15) -> imagem tipo 6 (16 imagens que NÓS desenhamos)
+
+CONTRATO v4 (mostrador <-> BambuWeatherMapper). Não mude um sem o outro.
+  painel esquerdo-baixo  "BICO"      = imagem 6; ícone = nozzleIndex(bico) -> imagem "220°"
+                                        níveis: 0(--),60,100,150,180,190,200,205,210,215,220,225,230,240,250,260
+  painel direito-baixo   "IMPRESSÃO" = texto 24, largura 23 (corta o "°") = atual = % (máx 99)
+  barra                  "H / MIN"   = texto 33 = dia0.lo/dia0.hi = horas/minutos restantes
+  (BPM e a barra de progresso gráfica saíram; o % aparece como número.)
+
+PASSOS
+1. Um único lugar monta o clima: BambuWeatherMapper.toWeather(). Apague qualquer outro.
+2. Copie por cima (mesmos caminhos):
+     app/src/main/assets/faces/MYND_HUD_BAMBU.bin
+     app/src/main/java/com/mynd/watch/bambu/PrintState.kt
+     app/src/test/java/com/mynd/watch/core/ProtocolTest.kt
+3. gradlew.bat testDebugUnitTest -> verde (inclui contratoMostradorBambuV4).
+4. gradlew.bat installDebug ; no app, enviar MYND_HUD_BAMBU.bin.
+5. Conferir: BICO = "220°", IMPRESSÃO = "34 %", barra = "14/4".
+6. Commit: "Bambu v4: bico via imagens, % e h/min".
+Mudança visual = pedir novo .bin ao Claude. Não editar .bin, níveis nem tipos de campo.
